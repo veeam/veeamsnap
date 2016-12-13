@@ -13,8 +13,8 @@ This module supports Linux kernels from 2.6.32 to 4.8.0.
 
 ##How to use
 For more information, please visit:<br />
-• How To blog post:https://www.veeam.com/blog/how-to-backup-linux.html<br />
-• Veeam community forums:https://forums.veeam.com/veeam-agent-for-linux-f41/<br />
+• How To blog post: https://www.veeam.com/blog/how-to-backup-linux.html<br />
+• Veeam community forums: https://forums.veeam.com/veeam-agent-for-linux-f41/<br />
 
 ##Maintainer
 Veeam Software AG veeam_team@veeam.com 
