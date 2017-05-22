@@ -271,7 +271,7 @@ size_t ctrl_pipe_command_next_portion( ctrl_pipe_t* pipe, char *buffer, size_t l
 {
 	unsigned int result = SUCCESS;
 	size_t processed = 0;
-	log_traceln( "." );
+	//log_traceln( "." );
 	do{
 		unsigned char* unique_id;
 		unsigned int ranges_length;
@@ -286,7 +286,7 @@ size_t ctrl_pipe_command_next_portion( ctrl_pipe_t* pipe, char *buffer, size_t l
 		}
 		unique_id = (unsigned char*)(buffer + processed);
 		processed += 16;
-		log_traceln_uuid( "unique_id=", unique_id );
+		log_traceln_uuid( "snapshotdata unique_id=", unique_id );
 
 		//get ranges length
 		if ((length - processed) < 4){
@@ -335,14 +335,14 @@ size_t ctrl_pipe_command_next_portion( ctrl_pipe_t* pipe, char *buffer, size_t l
 				break;
 			}
 
-			log_traceln_d( "Zero sectors set. ranges: ", ranges_length );
+			//log_traceln_d( "Zero sectors set. ranges: ", ranges_length );
 			for (ranges_inx = 0; ranges_inx < ranges_length; ++ranges_inx){
 				int res = SUCCESS;
 				range_t range;
 				range.ofs = sector_from_streamsize( ranges[ranges_inx].left );
 				range.cnt = sector_from_streamsize( ranges[ranges_inx].right ) - range.ofs;
 
-				log_traceln_range( "range:", range );
+				//log_traceln_range( "range:", range );
 				res = rangevector_add( &snapshotdata->zero_sectors, range );
 				if (res != SUCCESS){
 					log_errorln( "Cannot add range to zero sectors" );

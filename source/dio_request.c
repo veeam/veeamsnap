@@ -2,6 +2,7 @@
 
 #include "mem_alloc.h"
 #include "queue_spinlocking.h"
+#include "container_spinlocking.h"
 #include "page_array.h"
 #include "blk_dev_utile.h"
 #include "dio_request.h"
@@ -13,7 +14,15 @@ typedef struct dio_bio_complete_s{
 	dio_request_t* dio_req;
 	sector_t bio_sect_len;
 }dio_bio_complete_t;
-//////////////////////////////////////////////////////////////////////////
+
+typedef struct dio_deadlocked_s
+{
+	content_sl_t content;
+	dio_request_t* dio_req;
+}dio_deadlocked_t;
+
+static container_sl_t DioDeadlocked;
+
 atomic64_t dio_alloc_count;
 atomic64_t dio_free_count;
 
@@ -21,7 +30,27 @@ void dio_init( void )
 {
 	atomic64_set( &dio_alloc_count, 0 );
 	atomic64_set( &dio_free_count, 0 );
+
+	container_sl_init( &DioDeadlocked, sizeof( dio_deadlocked_t ), NULL );
 }
+void dio_done( void )
+{
+	content_sl_t* content;
+	while (NULL != (content = container_sl_get_first( &DioDeadlocked )) )
+	{
+		dio_deadlocked_t* dio_locked = (dio_deadlocked_t*)content;
+		if (dio_locked->dio_req->sect_len == atomic64_read( &dio_locked->dio_req->sect_processed )){
+			dio_request_free( dio_locked->dio_req );
+		}
+		else{
+			log_errorln_p( "Deadlocked dio still in memory. Address=", dio_locked->dio_req );
+		}
+		content_sl_free( content );
+	}
+
+	container_sl_done( &DioDeadlocked );
+}
+
 void dio_print_state( void )
 {
 	pr_warn( "\n" );
@@ -31,6 +60,14 @@ void dio_print_state( void )
 	pr_warn( "dio in use: %lld \n", (long long int)atomic64_read( &dio_alloc_count ) - (long long int)atomic64_read( &dio_free_count ) );
 }
 //////////////////////////////////////////////////////////////////////////
+void dio_request_deadlocked( dio_request_t* dio_req )
+{
+	dio_deadlocked_t* dio_locked = (dio_deadlocked_t*)content_sl_new( &DioDeadlocked );
+	dio_locked->dio_req = dio_req;
+	container_sl_push_back( &DioDeadlocked, &dio_locked->content );
+
+	log_warnln_p( "Deadlocked dio. Address=", dio_locked->dio_req );
+}
 void dio_free( dio_t* dio )
 {
 	if (dio->buff != NULL){
@@ -251,5 +288,80 @@ void dio_memcpy_read( char* databuff, dio_request_t* dio_req, page_array_t* arr,
 	}
 	__dio_bio_end_io( dio_req, size_sector, SUCCESS );
 }
+
+dio_request_t* dio_request_new( void )
+{
+	dio_request_t* dio_req = NULL;
+
+	while (NULL == (dio_req = dbg_kzalloc( sizeof( dio_request_t ), GFP_NOIO ))){
+		log_errorln_sz( "Failed to allocate dio_request. size=", sizeof( dio_request_t ) );
+	}
+	dio_req->dios_cnt = 0;
+	dio_req->result = SUCCESS;
+	atomic64_set( &dio_req->sect_processed, 0 );
+	dio_req->sect_len = 0;
+	init_completion( &dio_req->complete );
+
+	return dio_req;
+}
+
+bool dio_request_add( dio_request_t* dio_req, dio_t* dio )
+{
+	if (dio_req->dios_cnt < DEFER_IO_DIO_REQUEST_LENGTH){
+		dio_req->dios[dio_req->dios_cnt] = dio;
+		++dio_req->dios_cnt;
+
+		dio_req->sect_len += dio->sect_len;
+		return true;
+	}
+	return false;
+}
+
+void dio_request_free( dio_request_t* dio_req )
+{
+	if (dio_req != NULL){
+		int inx = 0;
+
+		for (inx = 0; inx < dio_req->dios_cnt; ++inx){
+			if (dio_req->dios[inx]){
+				dio_free( dio_req->dios[inx] );
+				dio_req->dios[inx] = NULL;
+			}
+		}
+		dbg_kfree( dio_req );
+	}
+}
+
+void dio_request_waiting_skip( dio_request_t* dio_req )
+{
+	init_completion( &dio_req->complete );
+	atomic64_set( &dio_req->sect_processed, 0 );
+}
+
+int dio_request_wait( dio_request_t* dio_req )
+{
+	u64 start_jiffies = get_jiffies_64( );
+	u64 current_jiffies;
+	//wait_for_completion_io_timeout
+
+	//if (0 == wait_for_completion_timeout( &dio_req->complete, (HZ * 30) )){
+	while (0 == wait_for_completion_timeout( &dio_req->complete, (HZ * 1) )){
+		//log_warnln( "differed IO request timeout" );
+		//log_errorln_sect( "sect_len=", dio_req->sect_len );
+		//log_errorln_sect( "sect_processed=", atomic64_read( &dio_req->sect_processed ) );
+		//WARN( true, "%s timeout.", __FUNCTION__ );
+		//return -EFAULT;
+
+		current_jiffies = get_jiffies_64( );
+		if (jiffies_to_msecs( current_jiffies - start_jiffies ) > 30 * 1000){
+			log_warnln( "differed IO request timeout" );
+			//log_errorln_sect( "sect_processed=", atomic64_read( &dio_req->sect_processed ) );
+			//log_errorln_sect( "sect_len=", dio_req->sect_len );
+			return -EDEADLK;
+		}
+	}
+	return dio_req->result;
+}
+
 //////////////////////////////////////////////////////////////////////////
 

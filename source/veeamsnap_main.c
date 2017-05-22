@@ -184,6 +184,7 @@ void __exit veeamsnap_exit(void)
 		sparsebitmap_done( );
 
 		dio_bioset_free( );
+		dio_done( );
 
 		blk_bioset_free( );
 	}

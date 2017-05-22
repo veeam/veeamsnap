@@ -1199,7 +1199,7 @@ void snapshotdata_SetCorrupted( snapshotdata_t* p_snapshotdata, int err_code )
 		p_snapshotdata->corrupted = true;
 		p_snapshotdata->err_code = err_code;
 
-		log_errorln( "Now snapshot corrupted." );
+		log_errorln_d( "Now snapshot corrupted. error=", (0-err_code) );
 	}
 	else{
 		log_errorln( "Snapshot already corrupted." );
@@ -1986,6 +1986,10 @@ void snapshotdata_print_state( snapshotdata_t* snapshotdata )
 int __snapshotdata_check_io_compatibility( dev_t dev_id, struct block_device*  snapdata_blk_dev, bool* is_compatibility )
 {
 	int res = SUCCESS;
+#if 0
+	*is_compatibility = true;
+	log_traceln_dev_t( "Compatible always for ", dev_id );
+#else
 	blk_dev_info_t dev_info;
 	blk_dev_info_t snapdata_dev_info;
 
@@ -2027,6 +2031,7 @@ int __snapshotdata_check_io_compatibility( dev_t dev_id, struct block_device*  s
 	if (SUCCESS != res){
 		log_errorln_dev_t( "Failed to check io compatibility for ", dev_id );
 	}
+#endif
 	return res;
 }
 ///

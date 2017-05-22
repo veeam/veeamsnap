@@ -17,7 +17,7 @@
 #include "snapshot.h"
 #include "tracker.h"
 
-//////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////
 
 typedef struct defer_io_original_request_s{
 	queue_content_sl_t content;
@@ -167,6 +167,7 @@ void __defer_io_finish( defer_io_t* defer_io, queue_sl_t* queue_in_progress )
 		if (orig_req->pTracker->underChangeTracking && is_write_bio){
 			tracker_CbtBitmapLock( orig_req->pTracker );
 			tracker_CbtBitmapSet( orig_req->pTracker, orig_req->sect_ofs, orig_req->sect_len );
+			//tracker_CbtBitmapUnlock( orig_req->pTracker );
 		}
 
 		orig_req->make_rq_fn( orig_req->q, orig_req->bio );
@@ -247,6 +248,7 @@ int defer_io_work_thread( void* p )
 		}
 
 		if (!queue_sl_empty( defer_io->dio_queue )){
+			int dio_copy_result = SUCCESS;
 			dio_request_t* dio_copy_req = NULL;
 
 			if (!kthread_should_stop( ) && !snapshotdata_IsCorrupted( defer_io->snapshotdata, defer_io->original_dev_id ))
@@ -255,22 +257,25 @@ int defer_io_work_thread( void* p )
 			__defer_io_prepear_dios( defer_io, &queue_in_process, dio_copy_req );
 
 			if (dio_copy_req && (dio_copy_req->sect_len != 0)){
-				int defer_io_result;
 
-				defer_io_result = __defer_io_copy_read_from_snapshot( defer_io, dio_copy_req );
-				if (SUCCESS == defer_io_result){
+				dio_copy_result = __defer_io_copy_read_from_snapshot( defer_io, dio_copy_req );
+				if (SUCCESS == dio_copy_result){
 					atomic64_add( dio_copy_req->sect_len, &defer_io->state_sectors_copy_read );
 
-					defer_io_result = __defer_io_copy_write_to_snapshot( defer_io->snapshotdata, dio_copy_req );
-					if (SUCCESS != defer_io_result)
-						snapshotdata_SetCorrupted( defer_io->snapshotdata, defer_io_result );
+					dio_copy_result = __defer_io_copy_write_to_snapshot( defer_io->snapshotdata, dio_copy_req );
+					if (SUCCESS != dio_copy_result)
+						snapshotdata_SetCorrupted( defer_io->snapshotdata, dio_copy_result );
 				}else
-					snapshotdata_SetCorrupted( defer_io->snapshotdata, defer_io_result );
+					snapshotdata_SetCorrupted( defer_io->snapshotdata, dio_copy_result );
 			}
 
 			__defer_io_finish( defer_io, &queue_in_process );
-			if (dio_copy_req)
-				dio_request_free( dio_copy_req );
+			if (dio_copy_req){
+				if (dio_copy_result == -EDEADLK)
+					dio_request_deadlocked( dio_copy_req );
+				else
+					dio_request_free( dio_copy_req );
+			}
 		}
 
 		//wake up snapimage if defer io queue empty

@@ -85,13 +85,16 @@ int __snapimage_open( struct block_device *bdev, fmode_t mode )
 {
 	snapimage_t* image;
 
-	if (bdev->bd_disk == NULL)
+	if (bdev->bd_disk == NULL){
+		log_errorln_dev_t( "bd_disk is NULL. dev=", bdev->bd_dev );
 		return -ENODEV;
+	}
 
 	image = bdev->bd_disk->private_data;
-	if (image == NULL)
+	if (image == NULL){
+		log_errorln_dev_t( "private_data is NULL. dev=", bdev->bd_dev );
 		return -ENODEV;
-
+	}
 	image->open_bdev = bdev;
 
 	log_traceln_dev_t( "dev=", image->image_dev );
@@ -633,6 +636,8 @@ blk_qc_t __snapimage_make_request( struct request_queue *q, struct bio *bio )
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION( 4, 4, 0 )
 	blk_qc_t result = SUCCESS;
+#else
+	int result = SUCCESS;
 #endif
 	snapimage_t* image = q->queuedata;
 	redirect_bio_endio_t* rq_endio;
@@ -642,11 +647,12 @@ blk_qc_t __snapimage_make_request( struct request_queue *q, struct bio *bio )
 	if (q->queue_flags & ((1<<QUEUE_FLAG_STOPPED) | (1<<QUEUE_FLAG_DEAD))){
 		log_traceln_lx( "Request failed. Queue already is not active. queue_flags=", q->queue_flags );
 		__snapimage_bio_complete( bio, -EIO );
+		result = -EIO;
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 4, 0 )
 
 #ifdef HAVE_MAKE_REQUEST_INT
-		return 0;
+		return result;
 #else
 		return;
 #endif
@@ -707,7 +713,7 @@ blk_qc_t __snapimage_make_request( struct request_queue *q, struct bio *bio )
 #if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 4, 0 )
 
 #ifdef HAVE_MAKE_REQUEST_INT
-	return 0;
+	return result;
 #endif
 
 #else

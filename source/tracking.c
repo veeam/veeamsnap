@@ -95,6 +95,7 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 					if (cbt_set){
 						tracker_CbtBitmapLock( pTracker );
 						tracker_CbtBitmapSet( pTracker, sectStart, sectCount );
+						//tracker_CbtBitmapUnlock( pTracker );
 					}
 					//call low level block device
 					pTrackerQueue->TargetMakeRequest_fn( q, bio );
@@ -109,6 +110,7 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 				if (cbt_set){
 					tracker_CbtBitmapLock( pTracker );
 					tracker_CbtBitmapSet( pTracker, sectStart, sectCount );
+					//tracker_CbtBitmapUnlock( pTracker );
 				}
 				pTrackerQueue->TargetMakeRequest_fn( q, bio );
 				if (cbt_set){

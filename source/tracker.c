@@ -656,6 +656,17 @@ int tracker_Freeze( snapshot_t* p_snapshot )
 		}
 	}
 
+	for (inx = 0; inx < p_snapshot->snapshot_map_length; ++inx){
+		tracker_t* p_tracker = NULL;
+		result = tracker_FindByDevId( p_snapshot->p_snapshot_map[inx].DevId, &p_tracker );
+
+
+		if (snapshotdata_IsCorrupted( p_tracker->defer_io->snapshotdata, p_snapshot->p_snapshot_map[inx].DevId )){
+			log_errorln_dev_t( "Failed to freeze devices. Snapshot data already corrupt for ", p_snapshot->p_snapshot_map[inx].DevId );
+			result = -EDEADLK;
+			break;
+		}
+	}
 	return result;
 }
 //////////////////////////////////////////////////////////////////////////

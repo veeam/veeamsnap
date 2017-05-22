@@ -7,7 +7,7 @@ extern "C" {
 typedef sector_t index_t;
 typedef u32 sparse_array_el_t;
 
-#define GROUP_LENGTH_SHIFT 12 //по 4096 элементов.
+#define GROUP_LENGTH_SHIFT 12
 #define GROUP_LENGTH (1 << GROUP_LENGTH_SHIFT)
 #define GROUP_LENGTH_MASK (GROUP_LENGTH-1)
 
