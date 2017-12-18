@@ -1,7 +1,7 @@
 #include "stdafx.h"
 #include "queue_spinlocking.h"
 
-int queue_sl_init( queue_sl_t* queue, int content_size, char* cache_name )
+int queue_sl_init( queue_sl_t* queue, int content_size )
 {
 	INIT_LIST_HEAD( &queue->headList );
 
@@ -12,20 +12,10 @@ int queue_sl_init( queue_sl_t* queue, int content_size, char* cache_name )
 	atomic_set( &queue->in_queue_cnt, 0);
 	atomic_set( &queue->alloc_cnt, 0 );
 
-	if (cache_name != NULL){
-		queue->content_cache = kmem_cache_create( cache_name, content_size, 0, 0, NULL );
-		if (queue->content_cache == NULL){
-			log_traceln_s( "Cannot create kmem_cache. Name=", cache_name );
-			return -ENOMEM;
-		}
-	}
-	else
-		queue->content_cache = NULL;
-
 	atomic_set( &queue->active_state, true );
 	return SUCCESS;
 }
-//////////////////////////////////////////////////////////////////////////
+
 int queue_sl_done( queue_sl_t* queue )
 {
 	if (queue->content_size != 0){
@@ -40,10 +30,6 @@ int queue_sl_done( queue_sl_t* queue )
 			return -EBUSY;
 		}
 
-		if (queue->content_cache != NULL){
-			kmem_cache_destroy( queue->content_cache );
-			queue->content_cache = NULL;
-		}
 		queue->content_size = 0;
 	}
 	return SUCCESS;
@@ -51,12 +37,7 @@ int queue_sl_done( queue_sl_t* queue )
 
 queue_content_sl_t* queue_content_sl_new_opt( queue_sl_t* queue, gfp_t gfp_opt )
 {
-	queue_content_sl_t* content;
-
-	if (queue->content_cache != NULL)
-		content = kmem_cache_alloc( queue->content_cache, gfp_opt );
-	else
-		content = dbg_kmalloc( queue->content_size, gfp_opt );
+	queue_content_sl_t* content = dbg_kmalloc( queue->content_size, gfp_opt );
 
 	if (content){
 		atomic_inc( &queue->alloc_cnt );
@@ -76,14 +57,11 @@ void queue_content_sl_free( queue_content_sl_t* content )
 		memset( content, 0xFF, queue->content_size );
 		atomic_dec( &queue->alloc_cnt );
 
-		if (queue->content_cache != NULL)
-			kmem_cache_free( queue->content_cache, content );
-		else
-			dbg_kfree( content );
+		dbg_kfree( content );
 	}
 }
 
-#define __queue_sl_push_back( queue, content ) \
+#define _queue_sl_push_back( queue, content ) \
 { \
 	INIT_LIST_HEAD( &(content)->link ); \
     list_add_tail( &(content)->link, &(queue)->headList ); \
@@ -96,7 +74,7 @@ int queue_sl_push_back( queue_sl_t* queue, queue_content_sl_t* content )
 	spin_lock( &queue->lock );
 	{
 		if (atomic_read( &queue->active_state )){
-			__queue_sl_push_back( queue, content );
+			_queue_sl_push_back( queue, content );
 		}
 		else
 			res = -EACCES;
@@ -105,7 +83,7 @@ int queue_sl_push_back( queue_sl_t* queue, queue_content_sl_t* content )
 	return res;
 }
 
-#define __queue_sl_get_first( queue, content ) \
+#define _queue_sl_get_first( queue, content ) \
 { \
     content = list_entry( (queue)->headList.next, queue_content_sl_t, link ); \
     list_del( &(content)->link ); \
@@ -119,7 +97,7 @@ queue_content_sl_t* queue_sl_get_first( queue_sl_t* queue )
 	spin_lock( &queue->lock );
 	{
 		if (!list_empty( &queue->headList )){
-			__queue_sl_get_first( queue, content );
+			_queue_sl_get_first( queue, content );
 		}
 	}
 	spin_unlock( &queue->lock );

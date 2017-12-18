@@ -1,12 +1,10 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif  /* __cplusplus */
-
 #include "range.h"
+#include "container.h"
+#include "rangelist.h"
 
-	//////////////////////////////////////////////////////////////////////////
+
 #if (BITS_PER_LONG == 64)
 #define SPARSE_BITMAP_BLOCK_SIZE_DEGREE	6	//block have 64 elements
 #endif
@@ -17,7 +15,7 @@ extern "C" {
 
 #define SPARSE_BITMAP_BLOCK_SIZE			((size_t)1<<SPARSE_BITMAP_BLOCK_SIZE_DEGREE)
 #define SPARSE_BITMAP_BLOCK_SIZE_MASK		(SPARSE_BITMAP_BLOCK_SIZE-1)
-	//////////////////////////////////////////////////////////////////////////
+
 
 #define BLOCK_EMPTY NULL
 #define BLOCK_FULL  (void*)(-1)
@@ -53,9 +51,5 @@ extern "C" {
 
 	void sparsebitmap_Clean( sparse_bitmap_t* bitmap );
 
-	int sparsebitmap_SetRange( sparse_bitmap_t* bitmap, range_t* rg, bool state );
-	int sparsebitmap_GetFirstRange( sparse_bitmap_t* bitmap, stream_size_t min_index, range_t* rg );
+	void sparsebitmap_convert2rangelist( sparse_bitmap_t* bitmap, rangelist_t* rangelist, sector_t start_index );
 
-#ifdef __cplusplus
-}
-#endif  /* __cplusplus */

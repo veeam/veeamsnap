@@ -2,12 +2,7 @@
 #include "sparse_array_1lv.h"
 
 
-#ifdef __cplusplus
-extern "C" {
-#endif  /* __cplusplus */
-
-//////////////////////////////////////////////////////////////////////////
-int sparse_array_1lv_init( sparse_arr1lv_t* header, index_t first, index_t last )
+int sparse_array_1lv_init( sparse_arr1lv_t* header, sparse_array_index_t first, sparse_array_index_t last )
 {
 	init_rwsem( &header->rw_lock );
 
@@ -27,18 +22,6 @@ int sparse_array_1lv_init( sparse_arr1lv_t* header, index_t first, index_t last 
 	return SUCCESS;
 }
 
-void sparse_array_1lv_done( sparse_arr1lv_t* header )
-{
-
-	if (header->groups != NULL){
-
-		sparse_array_1lv_reset( header );
-
-		dbg_vfree( header->groups, header->group_count * sizeof( sparse_array_group_t* ) );
-		header->groups = NULL;
-	}
-}
-
 void sparse_array_1lv_reset( sparse_arr1lv_t* header )
 {
 	size_t gr_idx;
@@ -52,7 +35,18 @@ void sparse_array_1lv_reset( sparse_arr1lv_t* header )
 	}
 }
 
-int sparse_array_1lv_set( sparse_arr1lv_t* header, index_t inx, sparse_array_el_t value, sparse_array_el_t* p_prev_value )
+void sparse_array_1lv_done( sparse_arr1lv_t* header )
+{
+	if (header->groups != NULL){
+
+		sparse_array_1lv_reset( header );
+
+		dbg_vfree( header->groups, header->group_count * sizeof( sparse_array_group_t* ) );
+		header->groups = NULL;
+	}
+}
+
+int sparse_array_1lv_set( sparse_arr1lv_t* header, sparse_array_index_t inx, sparse_array_el_t value, sparse_array_el_t* p_prev_value )
 {
 	int res = SUCCESS;
 	size_t gr_idx;
@@ -101,7 +95,7 @@ int sparse_array_1lv_set( sparse_arr1lv_t* header, index_t inx, sparse_array_el_
 	return res;
 }
 
-int _get_down( sparse_arr1lv_t* header, index_t inx, sparse_array_el_t* p_value, bool is_down )
+static int _get_down( sparse_arr1lv_t* header, sparse_array_index_t inx, sparse_array_el_t* p_value, bool is_down )
 {
 	int res = SUCCESS;
 	size_t gr_idx;
@@ -149,17 +143,13 @@ int _get_down( sparse_arr1lv_t* header, index_t inx, sparse_array_el_t* p_value,
 	return res;
 }
 
-int sparse_array_1lv_get( sparse_arr1lv_t* header, index_t inx, sparse_array_el_t* p_value )
+int sparse_array_1lv_get( sparse_arr1lv_t* header, sparse_array_index_t inx, sparse_array_el_t* p_value )
 {
 	return _get_down( header, inx, p_value, false );
 }
 
-int sparse_array_1lv_get_down( sparse_arr1lv_t* header, index_t inx, sparse_array_el_t* p_value )
+int sparse_array_1lv_get_down( sparse_arr1lv_t* header, sparse_array_index_t inx, sparse_array_el_t* p_value )
 {
 	return _get_down( header, inx, p_value, true );
 }
 
-//////////////////////////////////////////////////////////////////////////
-#ifdef __cplusplus
-}
-#endif  /* __cplusplus */

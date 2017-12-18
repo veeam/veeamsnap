@@ -1,5 +1,5 @@
-#ifndef TRACKER_QUEUE_H
-#define TRACKER_QUEUE_H
+#pragma once
+#include "container_spinlocking.h"
 
 typedef struct _tracker_queue_s
 {
@@ -30,4 +30,4 @@ int tracker_queue_Find(
 	tracker_queue_t** ppTrackerQueue
 );
 
-#endif //TRACKER_QUEUE_H
+

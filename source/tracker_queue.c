@@ -14,14 +14,15 @@ void tracking_make_request(struct request_queue *q, struct bio *bio);
 blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio );
 #endif
 
-//////////////////////////////////////////////////////////////////////////
+
 container_sl_t TrackerQueueList;
 
 int tracker_queue_Init(void )
 {
-	return container_sl_init(&TrackerQueueList, sizeof(tracker_queue_t), NULL);
+	container_sl_init(&TrackerQueueList, sizeof(tracker_queue_t));
+	return SUCCESS;
 }
-//////////////////////////////////////////////////////////////////////////
+
 int tracker_queue_Done(void )
 {
 	int result = container_sl_done( &TrackerQueueList );
@@ -30,7 +31,7 @@ int tracker_queue_Done(void )
 	}
 	return result;
 }
-//////////////////////////////////////////////////////////////////////////
+
 // find or create new tracker queue
 int tracker_queue_Ref(
 	struct request_queue* queue,
@@ -74,7 +75,7 @@ int tracker_queue_Ref(
 
 	return SUCCESS;
 }
-//////////////////////////////////////////////////////////////////////////
+
 void tracker_queue_Unref(
 	tracker_queue_t* pTrackerQueue
 )
@@ -94,7 +95,7 @@ void tracker_queue_Unref(
 	}
 }
 
-//////////////////////////////////////////////////////////////////////////
+
 
 int tracker_queue_Find( struct request_queue* queue, tracker_queue_t** ppTrackerQueue )
 {
@@ -114,4 +115,4 @@ int tracker_queue_Find( struct request_queue* queue, tracker_queue_t** ppTracker
 
 	return result;
 }
-//////////////////////////////////////////////////////////////////////////
+

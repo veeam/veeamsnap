@@ -35,6 +35,8 @@
 #define LICENCE_STR "GPL"
 #define AUTHOR_STR  "Veeam Software AG"
 
+
+#define VEEAMSNAP_MEMORY_LEAK_CONTROL
 #include "mem_alloc.h"
 
 #define DESCRIPTION_STR "Veeam Snapshot Kernel Module"
@@ -56,6 +58,7 @@ typedef unsigned long long stream_size_t;
 #define SNAPDATA_SPARSE_CHANGES // use sparse bitmap for snapdata collection
 #define SPARSE_BLOCK_CACHEABLE  // use cache for sparse block arrays
 
+#define DEFER_IO_COPY_REQUEST_LENGTH 10
 #define DEFER_IO_DIO_REQUEST_LENGTH 250
 #define DEFER_IO_DIO_REQUEST_SECTORS_COUNT (10*1024*1024/SECTOR512)
 
@@ -75,5 +78,24 @@ int get_debuglogging( void );
 int get_zerosnapdata( void );
 
 #define SNAPDATA_ZEROED
+
+#define CBT_BLOCK_SIZE_DEGREE ( 9 + SECTOR512_SHIFT ) //256Kb
+#define CBT_BLOCK_SIZE (1<<CBT_BLOCK_SIZE_DEGREE)
+
+#define SNAPSTORE
+
+#ifdef SNAPSTORE
+
+#define COW_BLOCK_SIZE_DEGREE ( 11 + SECTOR512_SHIFT ) //1MiB
+#define COW_BLOCK_SIZE (1<<COW_BLOCK_SIZE_DEGREE)
+
+#define SNAPSTORE_BLK_SHIFT (sector_t)(COW_BLOCK_SIZE_DEGREE - SECTOR512_SHIFT)
+#define SNAPSTORE_BLK_SIZE  (sector_t)(1 << SNAPSTORE_BLK_SHIFT)
+#define SNAPSTORE_BLK_MASK  (sector_t)(SNAPSTORE_BLK_SIZE-1)
+
+#endif
+
+//#define VEEAM_IOCTL_LOGGING
+
 
 #endif /* STDAFX_H_ */

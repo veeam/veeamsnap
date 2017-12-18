@@ -1,60 +1,61 @@
 #include "stdafx.h"
-#include "range.h"
-#include "container.h"
 #include "rangelist.h"
 
 
-int rangelist_Init( rangelist_t* rglist )
+
+void rangelist_init( rangelist_t* rglist )
 {
-
-	sprintf( rglist->cache_name, "vsnap_Rangelist%p", rglist );
-	log_traceln_s( "cache creating with name=", rglist->cache_name );
-
-	return container_init( &rglist->list, sizeof( range_content_t ), rglist->cache_name );
-
+	INIT_LIST_HEAD( &rglist->head );
 }
 
-void rangelist_Done( rangelist_t* rglist )
+static inline rangelist_el_t* _rangelist_get_first( rangelist_t* rglist )
 {
-	content_t* cont;
-
-	while (NULL != (cont = container_get_first( &rglist->list )) )
-		content_free( cont );
-
-	container_done( &rglist->list );
+	rangelist_el_t* el = NULL;
+	if (!list_empty( &rglist->head )){
+		el = list_entry( rglist->head.next, rangelist_el_t, link );
+		list_del( &el->link );
+	}
+	return el;
 }
 
-int rangelist_Add( rangelist_t* rglist, range_t* rg )
+void rangelist_done( rangelist_t* rglist )
 {
-	content_t* cont;
-	range_content_t* range_ct;
+	rangelist_el_t* el;
+	while (NULL != (el = _rangelist_get_first( rglist )))
+		dbg_kfree( el );
+}
 
-	cont = content_new( &rglist->list );
-	if (cont == NULL)
+int rangelist_add( rangelist_t* rglist, range_t* rg )
+{
+	rangelist_el_t* el = dbg_kzalloc( sizeof( rangelist_el_t ), GFP_KERNEL );
+	if (el == NULL)
 		return -ENOMEM;
 
-	range_ct = (range_content_t*)cont;
-	range_ct->rg.ofs = rg->ofs;
-	range_ct->rg.cnt = rg->cnt;
+	INIT_LIST_HEAD( &el->link );
 
-	container_push_back( &rglist->list, cont );
+	el->rg.ofs = rg->ofs;
+	el->rg.cnt = rg->cnt;
+
+	list_add_tail( &el->link, &rglist->head );
+
 	return SUCCESS;
 }
 
-int rangelist_Get( rangelist_t* rglist, range_t* rg )
+int rangelist_get( rangelist_t* rglist, range_t* rg )
 {
-	content_t* cont;
-	range_content_t* range_ct;
-
-	cont = container_get_first( &rglist->list );
-	if (cont == NULL){
+	rangelist_el_t* el = _rangelist_get_first( rglist );
+	if (el == NULL)
 		return -ENODATA;
-	}
-	range_ct = (range_content_t*)cont;
-	rg->ofs = range_ct->rg.ofs;
-	rg->cnt = range_ct->rg.cnt;
 
-	content_free( cont );
+	rg->ofs = el->rg.ofs;
+	rg->cnt = el->rg.cnt;
+
+	dbg_kfree( el );
 
 	return SUCCESS;
+}
+
+bool rangelist_empty( rangelist_t* rglist )
+{
+	return list_empty( &rglist->head );
 }

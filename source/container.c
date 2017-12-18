@@ -1,39 +1,24 @@
-#ifdef __cplusplus
-extern "C" {
-#endif  /* __cplusplus */
-
 #include "stdafx.h"
 #include "container.h"
 
-
+//#define _TRACE
 static atomic_t g_container_alloc_cnt = ATOMIC_INIT( 0 );
-//////////////////////////////////////////////////////////////////////////
+
 int container_alloc_counter(void )
 {
 	return atomic_read( &g_container_alloc_cnt );
 }
-//////////////////////////////////////////////////////////////////////////
-int container_init( container_t* pContainer, int content_size, char* cache_name )
+
+int container_init( container_t* pContainer, int content_size )
 {
 	INIT_LIST_HEAD( &pContainer->headList );
 	init_rwsem( &pContainer->lock );
 
 	pContainer->content_size = content_size;
 
-	atomic_set( &pContainer->cnt, 0 );
-
-	if (cache_name != NULL){
-		pContainer->content_cache = kmem_cache_create( cache_name, content_size, 0, 0, NULL );
-		if (pContainer->content_cache == NULL){
-			log_traceln_s( "Cannot create kmem_cache. Name=", cache_name );
-			return -ENOMEM;
-		}
-	}
-	else
-		pContainer->content_cache = NULL;
 	return SUCCESS;
 }
-//////////////////////////////////////////////////////////////////////////
+
 int container_done( container_t* pContainer )
 {
 	int cnt;
@@ -41,19 +26,26 @@ int container_done( container_t* pContainer )
 	if (pContainer->content_size != 0){
 		cnt = atomic_read( &pContainer->cnt );
 		if ((cnt != 0) || !list_empty( &pContainer->headList )){
-			log_errorln_d( "CRITICAL ERROR: Container isn`t empty!", cnt );
+			log_errorln_d( "CRITICAL ERROR: Container isn`t empty! cnt=", cnt );
 			return -EBUSY;
 		}
 
-		if (pContainer->content_cache != NULL){
-			kmem_cache_destroy( pContainer->content_cache );
-			pContainer->content_cache = NULL;
-		}
 		pContainer->content_size = 0;
 	}
 	return SUCCESS;
 }
-//////////////////////////////////////////////////////////////////////////
+
+void container_print_state( void )
+{
+	int conteiner_cnt;
+
+	pr_warn( "\n" );
+	pr_warn( "%s:\n", __FUNCTION__ );
+
+	conteiner_cnt = container_alloc_counter( );
+	pr_warn( "conteiner_cnt=%d\n", conteiner_cnt );
+}
+
 content_t* container_new( container_t* pContainer )
 {
 	content_t* pCnt = content_new(pContainer);
@@ -61,16 +53,16 @@ content_t* container_new( container_t* pContainer )
 		container_push_back( pContainer, pCnt );
 	return pCnt;
 }
-//////////////////////////////////////////////////////////////////////////
-void __container_del( container_t* pContainer, content_t* pCnt )
+
+void _container_del( container_t* pContainer, content_t* pCnt )
 {
 	list_del( &pCnt->link );
 	atomic_dec( &pContainer->cnt );
 }
 
-void __container_free( container_t* pContainer, content_t* pCnt )
+void _container_free( container_t* pContainer, content_t* pCnt )
 {
-	__container_del( pContainer, pCnt );
+	_container_del( pContainer, pCnt );
 	content_free( pCnt );
 }
 
@@ -79,7 +71,7 @@ void container_free( content_t* pCnt )
 	container_t* pContainer = pCnt->container;
 	down_write( &pContainer->lock );
 	do{
-		__container_free(pContainer, pCnt);
+		_container_free(pContainer, pCnt);
 	}while(false);
 	up_write( &pContainer->lock );
 }
@@ -93,7 +85,7 @@ void container_get( content_t* pCnt )
 	} while (false);
 	up_write( &pContainer->lock );
 }
-//////////////////////////////////////////////////////////////////////////
+
 int container_enum( container_t* pContainer, container_enum_cb_t callback, void* parameter )
 {
 	int result = SUCCESS;
@@ -146,7 +138,7 @@ int container_enum_and_free( container_t* pContainer, container_enum_cb_t callba
 				if (ret < SUCCESS)
 					break;
 
-				__container_free(pContainer, pCnt);
+				_container_free(pContainer, pCnt);
 
 				if (SUCCESS==ret)
 					break;
@@ -176,9 +168,9 @@ bool container_empty( container_t* pContainer )
 	return (0 == atomic_read( &pContainer->cnt ));
 }
 
-int container_push_back( container_t* pContainer, content_t* pCnt )
+size_t container_push_back( container_t* pContainer, content_t* pCnt )
 {
-	int index = 0;
+	size_t index = 0;
 
 	down_write( &pContainer->lock );
 	do{
@@ -227,14 +219,13 @@ content_t* container_get_first( container_t* pContainer )
 
 content_t* content_new_opt( container_t* pContainer, gfp_t gfp_opt )
 {
-	content_t* pCnt;
-	if (pContainer->content_cache != NULL)
-		pCnt = kmem_cache_alloc( pContainer->content_cache, gfp_opt );
-	else
-		pCnt = dbg_kmalloc( pContainer->content_size, gfp_opt );
+	content_t* pCnt = dbg_kmalloc( pContainer->content_size, gfp_opt );
 
 	if (pCnt){
 		atomic_inc( &g_container_alloc_cnt );
+#ifdef _TRACE
+		log_warnln( "++" );
+#endif
 		memset( pCnt, 0, pContainer->content_size );
 
 		pCnt->container = pContainer;
@@ -255,13 +246,10 @@ void content_free( content_t* pCnt )
 		memset( pCnt, 0xFF, pContainer->content_size );
 
 		atomic_dec( &g_container_alloc_cnt );
-		if (pContainer->content_cache)
-			kmem_cache_free( pContainer->content_cache, pCnt );
-		else
-			dbg_kfree( pCnt );
+#ifdef _TRACE
+		log_warnln( "--" );
+#endif
+		dbg_kfree( pCnt );
 	}
 }
-//////////////////////////////////////////////////////////////////////////
-#ifdef __cplusplus
-}
-#endif  /* __cplusplus */
+

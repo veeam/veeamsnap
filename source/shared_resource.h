@@ -1,6 +1,4 @@
 #pragma once
-#ifndef SHARED_RESOURCE_HEADER
-#define SHARED_RESOURCE_HEADER
 
 typedef void (shared_resource_free_cb)(void* this_resource);
 
@@ -30,5 +28,3 @@ static inline void shared_resource_put( shared_resource_t* resource_header )
 	if (atomic_dec_and_test( &resource_header->own_cnt ))
 		resource_header->free_cb( resource_header->this_resource );
 }
-#endif //SHARED_RESOURCE_HEADER
-

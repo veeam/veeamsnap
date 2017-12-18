@@ -1,5 +1,4 @@
-#ifndef CONTAINER_H
-#define CONTAINER_H
+#pragma once
 
 typedef struct _container
 {
@@ -8,7 +7,6 @@ typedef struct _container
 	struct rw_semaphore lock;
 	int content_size;
 	atomic_t cnt;
-	struct kmem_cache * content_cache;
 }container_t;
 
 typedef struct content_s
@@ -19,8 +17,10 @@ typedef struct content_s
 
 int container_alloc_counter( void );
 
-int container_init( container_t* pContainer, int content_size, char* cache_name );
+int container_init( container_t* pContainer, int content_size );
 int container_done( container_t* pContainer );
+
+void container_print_state( void );
 
 content_t* container_new( container_t* pContainer );
 void container_free( content_t* pCnt );
@@ -33,7 +33,7 @@ int container_enum_and_free( container_t* pContainer, container_enum_cb_t callba
 int container_length( container_t* pContainer );
 bool container_empty( container_t* pContainer );
 
-int container_push_back( container_t* pContainer, content_t* pCnt );
+size_t container_push_back( container_t* pContainer, content_t* pCnt );
 void container_push_top( container_t* pContainer, content_t* pCnt );
 content_t* container_get_first( container_t* pContainer );
 
@@ -41,14 +41,14 @@ content_t* content_new_opt( container_t* pContainer, gfp_t gfp_opt );
 content_t* content_new( container_t* pContainer );
 void content_free( content_t* pCnt );
 
-void __container_del( container_t* pContainer, content_t* pCnt ); //without locking
+void _container_del( container_t* pContainer, content_t* pCnt ); //without locking
 
 #define CONTAINER_FOREACH_BEGIN(Container,content) \
 down_read( &Container.lock ); \
 if (!list_empty( &Container.headList )){ \
-	struct list_head* __container_list_head; \
-	list_for_each( __container_list_head, &Container.headList ){ \
-	    content = list_entry( __container_list_head, content_t, link );
+	struct list_head* _container_list_head; \
+	list_for_each( _container_list_head, &Container.headList ){ \
+	    content = list_entry( _container_list_head, content_t, link );
 
 
 #define CONTAINER_FOREACH_END(Container) \
@@ -56,6 +56,3 @@ if (!list_empty( &Container.headList )){ \
 } \
 up_read( &Container.lock );
 
-
-
-#endif//CONTAINER_H

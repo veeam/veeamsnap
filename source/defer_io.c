@@ -1,29 +1,15 @@
 #include "stdafx.h"
-#include "container.h"
-#include "container_spinlocking.h"
-#include "queue_spinlocking.h"
-#include "range.h"
-#include "rangeset.h"
-#include "rangevector.h"
-#include "sparse_array_1lv.h"
-#include "blk_dev_utile.h"
-#include "shared_resource.h"
-#include "ctrl_pipe.h"
-#include "snapshotdata.h"
 #include "defer_io.h"
-#include "veeamsnap_ioctl.h"
-#include "cbt_map.h"
-#include "tracker_queue.h"
-#include "snapshot.h"
+#include "queue_spinlocking.h"
+#include "blk_deferred.h"
 #include "tracker.h"
+#include "blk_util.h"
 
-/////////////////////////////////////////////////////////////////
 
 typedef struct defer_io_original_request_s{
 	queue_content_sl_t content;
 
-	sector_t sect_ofs;
-	sector_t sect_len;
+	range_t sect;
 
 	struct bio* bio;
 	struct request_queue *q;
@@ -32,9 +18,11 @@ typedef struct defer_io_original_request_s{
 
 }defer_io_original_request_t;
 
-//////////////////////////////////////////////////////////////////////////
+#ifdef SNAPSTORE
+//
+#else //SNAPSTORE
 
-int __defer_io_copy_read_from_snapshot_dio( defer_io_t* defer_io, dio_request_t* dio_req, dio_t* dio )
+int _defer_io_copy_read_from_snapshot_dio( defer_io_t* defer_io, blk_deferred_request_t* dio_req, blk_deferred_t* dio )
 {
 	int res = -ENODATA;
 
@@ -51,11 +39,11 @@ int __defer_io_copy_read_from_snapshot_dio( defer_io_t* defer_io, dio_request_t*
 		return -ENODATA;
 
 	//enumarate state of all blocks for reading area.
-	for (block_ofs_curr = 0; block_ofs_curr < dio->sect_len; block_ofs_curr += SNAPSHOTDATA_BLK_SIZE){
+	for (block_ofs_curr = 0; block_ofs_curr < dio->sect.cnt; block_ofs_curr += SNAPSHOTDATA_BLK_SIZE){
 
-		res = snapshotdata_TestBlock( defer_io->snapshotdata, dio->sect_ofs + block_ofs_curr, &is_snap_curr );
+		res = snapshotdata_TestBlock( defer_io->snapshotdata, dio->sect.ofs + block_ofs_curr, &is_snap_curr );
 		if (res != SUCCESS){
-			log_errorln_sect( "TestBlock failed. pos=", dio->sect_ofs + block_ofs_curr );
+			log_errorln_sect( "TestBlock failed. pos=", dio->sect.ofs + block_ofs_curr );
 			break;
 		}
 
@@ -66,9 +54,9 @@ int __defer_io_copy_read_from_snapshot_dio( defer_io_t* defer_io, dio_request_t*
 			else{
 				if (blk_ofs_count){
 					//snapshot read
-					res = snapshotdata_read_dio( defer_io->snapshotdata, dio_req, dio->sect_ofs + blk_ofs_start, blk_ofs_start, blk_ofs_count, dio->buff );
+					res = snapshotdata_read_dio( defer_io->snapshotdata, dio_req, dio->sect.ofs + blk_ofs_start, blk_ofs_start, blk_ofs_count, dio->buff );
 					if (res != SUCCESS){
-						log_errorln_d( "failed. err=", 0 - res );
+						log_errorln_d( "failed. err=", res );
 						break;
 					}
 					is_redirected = true;
@@ -83,8 +71,8 @@ int __defer_io_copy_read_from_snapshot_dio( defer_io_t* defer_io, dio_request_t*
 			if (is_snap_curr){
 				if (blk_ofs_count){
 					//device read
-					if (blk_ofs_count != dio_submit_pages( defer_io->original_blk_dev, dio_req, READ, blk_ofs_start, dio->buff, dio->sect_ofs + blk_ofs_start, blk_ofs_count )){
-						log_errorln_sect( "Failed. ofs=", dio->sect_ofs + blk_ofs_start );
+					if (blk_ofs_count != blk_deferred_submit_pages( defer_io->original_blk_dev, dio_req, READ, blk_ofs_start, dio->buff, dio->sect.ofs + blk_ofs_start, blk_ofs_count )){
+						log_errorln_sect( "Failed. ofs=", dio->sect.ofs + blk_ofs_start );
 						res = -EIO;
 						break;
 					}
@@ -105,18 +93,18 @@ int __defer_io_copy_read_from_snapshot_dio( defer_io_t* defer_io, dio_request_t*
 	//read last blocks range
 	if ((res == SUCCESS) || (blk_ofs_count != 0)){
 		if (is_snap_curr){
-			res = snapshotdata_read_dio( defer_io->snapshotdata, dio_req, dio->sect_ofs + blk_ofs_start, blk_ofs_start, blk_ofs_count, dio->buff );
+			res = snapshotdata_read_dio( defer_io->snapshotdata, dio_req, dio->sect.ofs + blk_ofs_start, blk_ofs_start, blk_ofs_count, dio->buff );
 		}
 		else{
-			if (blk_ofs_count != dio_submit_pages( defer_io->original_blk_dev, dio_req, READ, blk_ofs_start, dio->buff, dio->sect_ofs + blk_ofs_start, blk_ofs_count )){
-				log_errorln_sect( "Failed. ofs=", dio->sect_ofs + blk_ofs_start );
+			if (blk_ofs_count != blk_deferred_submit_pages( defer_io->original_blk_dev, dio_req, READ, blk_ofs_start, dio->buff, dio->sect.ofs + blk_ofs_start, blk_ofs_count )){
+				log_errorln_sect( "Failed. ofs=", dio->sect.ofs + blk_ofs_start );
 				res = -EIO;
 			}
 		}
 		if (res == SUCCESS)
 			is_redirected = true;
 		else{
-			log_errorln_d( "failed. err=", 0 - res );
+			log_errorln_d( "failed. err=", res );
 		}
 	}
 
@@ -125,74 +113,124 @@ int __defer_io_copy_read_from_snapshot_dio( defer_io_t* defer_io, dio_request_t*
 	}
 	return res;
 }
+#endif //SNAPSTORE
 
-int __defer_io_copy_read_from_snapshot( defer_io_t* defer_io, dio_request_t* dio_copy_req )
+#ifdef SNAPSTORE
+
+#else //SNAPSTORE
+
+int _defer_io_copy_read_from_snapshot( defer_io_t* defer_io, blk_deferred_request_t* dio_copy_req )
 {
-	dio_t* dio;
+	blk_deferred_t* dio;
 	int dio_inx = 0;
 
-	dio_request_waiting_skip( dio_copy_req );
+	blk_deferred_request_waiting_skip( dio_copy_req );
 
-	while (NULL != (dio = (dio_t*)dio_copy_req->dios[dio_inx])){
-		int res = __defer_io_copy_read_from_snapshot_dio( defer_io, dio_copy_req, dio );
+	while (NULL != (dio = (blk_deferred_t*)dio_copy_req->dios[dio_inx])){
+		int res = _defer_io_copy_read_from_snapshot_dio( defer_io, dio_copy_req, dio );
 		if (res != SUCCESS)
 			return res;
 		++dio_inx;
 	}
 
-	return dio_request_wait( dio_copy_req );
+	return blk_deferred_request_wait( dio_copy_req );
 }
-//////////////////////////////////////////////////////////////////////////
-int __defer_io_copy_write_to_snapshot( snapshotdata_t* snapshotdata, dio_request_t* dio_copy_req )
+#endif //SNAPSTORE
+
+#ifdef SNAPSTORE
+//
+#else //SNAPSTORE
+
+int _defer_io_copy_write_to_snapshot( snapshotdata_t* snapshotdata, blk_deferred_request_t* dio_copy_req )
 {
 	int res;
 
-	dio_request_waiting_skip( dio_copy_req );
+	blk_deferred_request_waiting_skip( dio_copy_req );
 
 	res = snapshotdata_write_dio_request_to_snapshot( snapshotdata, dio_copy_req );
 	if (res != SUCCESS)
 		return res;
 
-	return dio_request_wait( dio_copy_req );
+	return blk_deferred_request_wait( dio_copy_req );
 }
-//////////////////////////////////////////////////////////////////////////
-void __defer_io_finish( defer_io_t* defer_io, queue_sl_t* queue_in_progress )
+
+#endif //SNAPSTORE
+
+void _defer_io_finish( defer_io_t* defer_io, queue_sl_t* queue_in_progress )
 {
-	while ( !queue_sl_empty( *queue_in_progress ) ){
+	while ( !queue_sl_empty( *queue_in_progress ) )
+	{
+		tracker_t* pTracker = NULL;
+		bool cbt_locked = false;
 		bool is_write_bio;
 		defer_io_original_request_t* orig_req = (defer_io_original_request_t*)queue_sl_get_first( queue_in_progress );
 
 		is_write_bio = bio_data_dir( orig_req->bio ) && bio_has_data( orig_req->bio );
 
 		if (orig_req->pTracker->underChangeTracking && is_write_bio){
-			tracker_CbtBitmapLock( orig_req->pTracker );
-			tracker_CbtBitmapSet( orig_req->pTracker, orig_req->sect_ofs, orig_req->sect_len );
-			//tracker_CbtBitmapUnlock( orig_req->pTracker );
+			pTracker = orig_req->pTracker;
+			cbt_locked = tracker_CbtBitmapLock( pTracker );
+			if (cbt_locked)
+				tracker_CbtBitmapSet( pTracker, orig_req->sect.ofs, orig_req->sect.cnt );
 		}
 
-		orig_req->make_rq_fn( orig_req->q, orig_req->bio );
+		{
+			struct bio* _bio = orig_req->bio;
+			orig_req->bio = NULL;
+			bio_put( _bio );
 
+			orig_req->make_rq_fn( orig_req->q, _bio );
+
+		}
 		atomic64_inc( &defer_io->state_bios_processed );
-		atomic64_add( (orig_req->sect_len), &defer_io->state_sectors_processed );
+		atomic64_add( (orig_req->sect.cnt), &defer_io->state_sectors_processed );
 
-		if (orig_req->pTracker->underChangeTracking && is_write_bio){
-			tracker_CbtBitmapUnlock( orig_req->pTracker );
-		}
+		if (cbt_locked)
+			tracker_CbtBitmapUnlock( pTracker );
 
-		bio_put( orig_req->bio );
 		queue_content_sl_free( &orig_req->content );
 	}
 }
-//////////////////////////////////////////////////////////////////////////
 
-void __defer_io_prepear_dios( defer_io_t* defer_io, queue_sl_t* queue_in_process, dio_request_t* dio_copy_req )
+#ifdef SNAPSTORE
+
+int _defer_io_copy_prepare( defer_io_t* defer_io, queue_sl_t* queue_in_process, blk_deferred_request_t** dio_copy_req )
 {
-	int dios_count;
-	sector_t dios_sectors_count;
+	int res = SUCCESS;
+	int dios_count = 0;
+	sector_t dios_sectors_count = 0;
+
+	//fill copy_request set
+	while (!queue_sl_empty( defer_io->dio_queue ) && (dios_count < DEFER_IO_DIO_REQUEST_LENGTH) && (dios_sectors_count < DEFER_IO_DIO_REQUEST_SECTORS_COUNT)){
+
+		defer_io_original_request_t* dio_orig_req = (defer_io_original_request_t*)queue_sl_get_first( &defer_io->dio_queue );
+		atomic_dec( &defer_io->queue_filling_count );
+
+		queue_sl_push_back( queue_in_process, &dio_orig_req->content );
+
+		if (!kthread_should_stop( ) && !snapstore_device_is_corrupted( defer_io->snapstore_device )){
+			if (bio_data_dir( dio_orig_req->bio ) && bio_has_data( dio_orig_req->bio )){
+				res = snapstore_device_prepare_requests( defer_io->snapstore_device, &dio_orig_req->sect, dio_copy_req );
+				if (res != SUCCESS){
+					log_errorln_d( "Failed to add range for COW. error=", res );
+					break;
+				}
+				dios_sectors_count += dio_orig_req->sect.cnt;
+			}
+		}
+		++dios_count;
+	}
+	return res;
+}
+
+#else //no SNAPSTORE
+
+void _defer_io_prepare_dios( defer_io_t* defer_io, queue_sl_t* queue_in_process, blk_deferred_request_t* dio_copy_req )
+{
+	int dios_count = 0;
+	sector_t dios_sectors_count = 0;
 
 	//first circle: extract dio from queue and create copying portion.
-	dios_count = 0;
-	dios_sectors_count = 0;
 	while (!queue_sl_empty( defer_io->dio_queue ) && (dios_count < DEFER_IO_DIO_REQUEST_LENGTH) && (dios_sectors_count < DEFER_IO_DIO_REQUEST_SECTORS_COUNT)){
 
 		defer_io_original_request_t* dio_orig_req = (defer_io_original_request_t*)queue_sl_get_first( &defer_io->dio_queue );
@@ -202,23 +240,29 @@ void __defer_io_prepear_dios( defer_io_t* defer_io, queue_sl_t* queue_in_process
 
 		if (bio_data_dir( dio_orig_req->bio ) && bio_has_data( dio_orig_req->bio )){
 			if (dio_copy_req){
-				dio_t* copy_dio;
+
+				blk_deferred_t* copy_dio;
 				sector_t ordered_start;
 				sector_t ordered_len;
 
-				snapshotdata_order_border( dio_orig_req->sect_ofs, dio_orig_req->sect_len, &ordered_start, &ordered_len );
-				copy_dio = dio_alloc( ordered_start, ordered_len );
+				snapshotdata_order_border( dio_orig_req->sect.ofs, dio_orig_req->sect.cnt, &ordered_start, &ordered_len );
+				copy_dio = blk_deferred_alloc( ordered_start, ordered_len );
 				if (copy_dio == NULL){
 					log_errorln_sect( "dio alloc failed. ordered_len=", ordered_len );
-				}else
-					dio_request_add( dio_copy_req, copy_dio );
+				}
+				else{
+					/*int res = */
+					blk_deferred_request_add( dio_copy_req, copy_dio );
+				}
 			}
-			dios_sectors_count += dio_orig_req->sect_len;
+			dios_sectors_count += dio_orig_req->sect.cnt;
 		}
 		++dios_count;
 	}
 }
-//////////////////////////////////////////////////////////////////////////
+
+#endif // no SNAPSTORE
+
 int defer_io_work_thread( void* p )
 {
 
@@ -229,11 +273,10 @@ int defer_io_work_thread( void* p )
 
 	//set_user_nice( current, -20 ); //MIN_NICE
 
-	if (SUCCESS != queue_sl_init( &queue_in_process, sizeof( defer_io_original_request_t ), NULL )){
+	if (SUCCESS != queue_sl_init( &queue_in_process, sizeof( defer_io_original_request_t ) )){
 		log_errorln( "Failed to allocate queue_in_progress." );
 		return -EFAULT;
 	}
-
 	while (!kthread_should_stop( ) || !queue_sl_empty( defer_io->dio_queue )){
 
 		if (queue_sl_empty( defer_io->dio_queue )){
@@ -246,37 +289,79 @@ int defer_io_work_thread( void* p )
 				//    wake_up_interruptible( &defer_io->queue_throttle_waiter );
 			}
 		}
-
+#ifdef SNAPSTORE
 		if (!queue_sl_empty( defer_io->dio_queue )){
 			int dio_copy_result = SUCCESS;
-			dio_request_t* dio_copy_req = NULL;
+			blk_deferred_request_t* dio_copy_req = NULL;
+
+
+			_snapstore_device_descr_read_lock( defer_io->snapstore_device );
+			do{
+				dio_copy_result = _defer_io_copy_prepare( defer_io, &queue_in_process, &dio_copy_req );
+				if (dio_copy_result != SUCCESS){
+					log_errorln_d( "Failed to prepare copy requests ", dio_copy_result );
+					break;
+				}
+				if (NULL == dio_copy_req)
+					break;//nothing to copy
+
+				dio_copy_result = blk_deferred_request_read_original( defer_io->original_blk_dev, dio_copy_req );
+				if (dio_copy_result != SUCCESS){
+					log_errorln_d( "Failed to read data for COW. err=", dio_copy_result );
+					break;
+				}
+				dio_copy_result = snapstore_device_store( defer_io->snapstore_device, dio_copy_req );
+				if (dio_copy_result != SUCCESS){
+					log_errorln_d( "Failed to write data for COW. err=", dio_copy_result );
+					break;
+				}
+
+				atomic64_add( dio_copy_req->sect_len, &defer_io->state_sectors_copy_read );
+			} while (false);
+
+			_defer_io_finish( defer_io, &queue_in_process );
+
+			_snapstore_device_descr_read_unlock( defer_io->snapstore_device );
+
+			if (dio_copy_req){
+				if (dio_copy_result == -EDEADLK)
+					blk_deferred_request_deadlocked( dio_copy_req );
+				else
+					blk_deferred_request_free( dio_copy_req );
+			}
+		}
+#else //SNAPSTORE
+		if (!queue_sl_empty( defer_io->dio_queue )){
+			int dio_copy_result = SUCCESS;
+			blk_deferred_request_t* dio_copy_req = NULL;
 
 			if (!kthread_should_stop( ) && !snapshotdata_IsCorrupted( defer_io->snapshotdata, defer_io->original_dev_id ))
-				dio_copy_req = dio_request_new( );
+				dio_copy_req = blk_deferred_request_new( );
 
-			__defer_io_prepear_dios( defer_io, &queue_in_process, dio_copy_req );
+			_defer_io_prepare_dios( defer_io, &queue_in_process, dio_copy_req );
 
 			if (dio_copy_req && (dio_copy_req->sect_len != 0)){
 
-				dio_copy_result = __defer_io_copy_read_from_snapshot( defer_io, dio_copy_req );
+				dio_copy_result = _defer_io_copy_read_from_snapshot( defer_io, dio_copy_req );
 				if (SUCCESS == dio_copy_result){
 					atomic64_add( dio_copy_req->sect_len, &defer_io->state_sectors_copy_read );
 
-					dio_copy_result = __defer_io_copy_write_to_snapshot( defer_io->snapshotdata, dio_copy_req );
+					dio_copy_result = _defer_io_copy_write_to_snapshot( defer_io->snapshotdata, dio_copy_req );
 					if (SUCCESS != dio_copy_result)
 						snapshotdata_SetCorrupted( defer_io->snapshotdata, dio_copy_result );
 				}else
 					snapshotdata_SetCorrupted( defer_io->snapshotdata, dio_copy_result );
 			}
 
-			__defer_io_finish( defer_io, &queue_in_process );
+			_defer_io_finish( defer_io, &queue_in_process );
 			if (dio_copy_req){
 				if (dio_copy_result == -EDEADLK)
-					dio_request_deadlocked( dio_copy_req );
+					blk_deferred_request_deadlocked( dio_copy_req );
 				else
-					dio_request_free( dio_copy_req );
+					blk_deferred_request_free( dio_copy_req );
 			}
 		}
+#endif //SNAPSTORE
 
 		//wake up snapimage if defer io queue empty
 		if (queue_sl_empty( defer_io->dio_queue )){
@@ -286,7 +371,7 @@ int defer_io_work_thread( void* p )
 	queue_sl_active( &defer_io->dio_queue, false );
 
 	//waiting for all sent request complete
-	__defer_io_finish( defer_io, &defer_io->dio_queue );
+	_defer_io_finish( defer_io, &defer_io->dio_queue );
 
 	if (SUCCESS != queue_sl_done( &queue_in_process)){
 		log_errorln( "Failed to free queue_in_progress." );
@@ -295,8 +380,9 @@ int defer_io_work_thread( void* p )
 	log_traceln( "complete." );
 	return SUCCESS;
 }
-//////////////////////////////////////////////////////////////////////////
-void __defer_io_destroy( void* this_resource )
+
+
+void _defer_io_destroy( void* this_resource )
 {
 	defer_io_t* defer_io = (defer_io_t*)this_resource;
 
@@ -313,22 +399,26 @@ void __defer_io_destroy( void* this_resource )
 		log_traceln_lld( "Copied MiB: ", (copyed >> (20 - SECTOR512_SHIFT)) );
 	}
 	if (defer_io->dio_thread)
-		defer_io_close( defer_io );
+		defer_io_destroy( defer_io );
 
 	queue_sl_done( &defer_io->dio_queue );
 
+#ifdef SNAPSTORE
+	snapstore_device_put_resource( defer_io->snapstore_device );
+#endif
 	dbg_kfree( defer_io );
 	log_traceln( "complete." );
 }
-//////////////////////////////////////////////////////////////////////////
+
+
 int defer_io_create( dev_t dev_id, struct block_device* blk_dev, defer_io_t** pp_defer_io )
 {
 	int res = SUCCESS;
-	rangeset_t* rangset = NULL;
 	defer_io_t* defer_io = NULL;
 	char thread_name[32];
 
-	log_traceln( "." );
+	log_traceln_dev_t( "device=", dev_id );
+
 	defer_io = dbg_kzalloc( sizeof( defer_io_t ), GFP_KERNEL );
 	if (defer_io == NULL)
 		return -ENOMEM;
@@ -342,17 +432,26 @@ int defer_io_create( dev_t dev_id, struct block_device* blk_dev, defer_io_t** pp
 
 		defer_io->original_dev_id = dev_id;
 		defer_io->original_blk_dev = blk_dev;
-
+#ifdef SNAPSTORE
+		{
+			snapstore_device_t* snapstore_device = snapstore_device_find_by_dev_id( defer_io->original_dev_id );
+			if (NULL == snapstore_device){
+				log_errorln_dev_t( "Snapshot data is not initialized for device=", dev_id );
+				break;
+			}
+			defer_io->snapstore_device = snapstore_device_get_resource( snapstore_device );
+		}
+#else
 		res = snapshotdata_FindByDevId( defer_io->original_dev_id, &defer_io->snapshotdata );
 		if (res != SUCCESS){
 			log_errorln_dev_t( "Snapshot data is not initialized for device=", dev_id );
 			break;
 		}
-		log_traceln_dev_t( "Snapshot data using for device=", dev_id );
+#endif
 
 		init_rwsem( &defer_io->flush_lock );
 
-		res = queue_sl_init( &defer_io->dio_queue, sizeof( defer_io_original_request_t ), NULL );
+		res = queue_sl_init( &defer_io->dio_queue, sizeof( defer_io_original_request_t ) );
 
 		init_waitqueue_head( &defer_io->queue_add_event );
 
@@ -360,7 +459,7 @@ int defer_io_create( dev_t dev_id, struct block_device* blk_dev, defer_io_t** pp
 
 		init_waitqueue_head( &defer_io->queue_throttle_waiter );
 
-		shared_resource_init( &defer_io->sharing_header, defer_io, __defer_io_destroy );
+		shared_resource_init( &defer_io->sharing_header, defer_io, _defer_io_destroy );
 
 		if (sprintf( thread_name, "%s%d:%d", "veeamdeferio", MAJOR( dev_id ), MINOR( dev_id ) ) >= DISK_NAME_LEN){
 			log_errorln_dev_t( "Cannot create thread name for device ", dev_id );
@@ -371,7 +470,7 @@ int defer_io_create( dev_t dev_id, struct block_device* blk_dev, defer_io_t** pp
 		defer_io->dio_thread = kthread_create( defer_io_work_thread, (void *)defer_io, thread_name );
 		if (IS_ERR( defer_io->dio_thread )) {
 			res = PTR_ERR( defer_io->dio_thread );
-			log_errorln_d( "Failed to allocate request processing thread. res=", 0 - res );
+			log_errorln_d( "Failed to allocate request processing thread. res=", res );
 			break;
 		}
 		wake_up_process( defer_io->dio_thread );
@@ -381,22 +480,19 @@ int defer_io_create( dev_t dev_id, struct block_device* blk_dev, defer_io_t** pp
 	if (res == SUCCESS){
 
 		*pp_defer_io = defer_io;
-		log_traceln( "complete success." );
+		log_traceln( "complete" );
 	}
 	else{
-		if (rangset){
-			rangeset_destroy( rangset );
-			rangset = NULL;
-		}
-		__defer_io_destroy( defer_io );
+		_defer_io_destroy( defer_io );
 		defer_io = NULL;
-		log_errorln_d( "complete fail. res=", 0 - res );
+		log_errorln_d( "complete fail. res=", res );
 	}
 
 	return res;
 }
-//////////////////////////////////////////////////////////////////////////
-int defer_io_close( defer_io_t* defer_io )
+
+
+int defer_io_destroy( defer_io_t* defer_io )
 {
 	int res = SUCCESS;
 
@@ -407,13 +503,14 @@ int defer_io_close( defer_io_t* defer_io )
 
 		res = kthread_stop( dio_thread );//stopping and waiting.
 	if (res != SUCCESS){
-		log_errorln_d( "Failed to stop defer_io thread. res=", 0 - res );
+		log_errorln_d( "Failed to stop defer_io thread. res=", res );
 	}
 	}
 	return res;
 }
-//////////////////////////////////////////////////////////////////////////
-int __defer_io_bio2dio( struct bio* bio, dio_t* dio )
+
+
+int _defer_io_bio2dio( struct bio* bio, blk_deferred_t* dio )
 {
 	unsigned int copy_size;
 	unsigned int copy_page_cnt;
@@ -424,10 +521,10 @@ int __defer_io_bio2dio( struct bio* bio, dio_t* dio )
 	if (copy_size & (PAGE_SIZE - 1))
 		++copy_page_cnt;
 
-	if (copy_page_cnt > dio->buff->count){
+	if (copy_page_cnt > dio->buff->pg_cnt){
 		log_errorln( "CRITICAL! copy_page_cnt > buff->count." );
 		log_errorln_d( "copy_page_cnt=", copy_page_cnt );
-		log_errorln_sz( "buff->count=", dio->buff->count );
+		log_errorln_sz( "buff->count=", dio->buff->pg_cnt );
 		return -EFAULT;
 	}
 
@@ -440,13 +537,18 @@ int __defer_io_bio2dio( struct bio* bio, dio_t* dio )
 	}
 	return SUCCESS;
 }
-//////////////////////////////////////////////////////////////////////////
+
+
 int defer_io_redirect_bio( defer_io_t* defer_io, struct bio *bio, sector_t sectStart, sector_t sectCount, struct request_queue *q, make_request_fn* TargetMakeRequest_fn, void* pTracker )
 {
 	defer_io_original_request_t* dio_orig_req;
-
+#ifdef SNAPSTORE
+	if (snapstore_device_is_corrupted( defer_io->snapstore_device ))
+		return -ENODATA;
+#else
 	if (snapshotdata_IsCorrupted( defer_io->snapshotdata, defer_io->original_dev_id ))
 		return -ENODATA;
+#endif
 
 	dio_orig_req = (defer_io_original_request_t*)queue_content_sl_new_opt( &defer_io->dio_queue, GFP_NOIO );
 	if (dio_orig_req == NULL)
@@ -454,8 +556,8 @@ int defer_io_redirect_bio( defer_io_t* defer_io, struct bio *bio, sector_t sectS
 
 
 	//copy data from bio to dio write buffer
-	dio_orig_req->sect_ofs = sectStart;
-	dio_orig_req->sect_len = sectCount;
+	dio_orig_req->sect.ofs = sectStart;
+	dio_orig_req->sect.cnt = sectCount;
 	bio_get( dio_orig_req->bio = bio );
 	dio_orig_req->q = q;
 	dio_orig_req->make_rq_fn = TargetMakeRequest_fn;
@@ -476,7 +578,7 @@ int defer_io_redirect_bio( defer_io_t* defer_io, struct bio *bio, sector_t sectS
 	return SUCCESS;
 }
 
-//////////////////////////////////////////////////////////////////////////
+
 void defer_io_print_state( defer_io_t* defer_io )
 {
 	unsigned long received_mb;
@@ -506,8 +608,12 @@ void defer_io_print_state( defer_io_t* defer_io )
 		received_mb,
 		processed_mb,
 		copy_read_mb);
-
+#ifdef SNAPSTORE
+	if (defer_io->snapstore_device)
+		snapstore_device_print_state( defer_io->snapstore_device );
+#else
 	if (defer_io->snapshotdata)
 		snapshotdata_print_state( defer_io->snapshotdata );
+#endif
 }
-//////////////////////////////////////////////////////////////////////////
+

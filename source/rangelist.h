@@ -1,32 +1,57 @@
 #pragma once
 
-#ifndef RANGELIST_H_
-#define RANGELIST_H_
+#include "range.h"
 
-typedef struct range_content_s
-{
-	content_t content;
-	range_t rg;
-}range_content_t;
+//  NO LOCKED !
 
 typedef struct rangelist_s
 {
-	container_t list;
-	char cache_name[15 + 16 + 1];
+	struct list_head head;
 }rangelist_t;
 
 
-int rangelist_Init( rangelist_t* rglist );
-
-void rangelist_Done( rangelist_t* rglist );
-
-int rangelist_Add( rangelist_t* rglist, range_t* rg );
-
-int rangelist_Get( rangelist_t* rglist, range_t* rg );
-
-static inline size_t rangelist_Length( rangelist_t* rglist )
+typedef struct range_el_s
 {
-	return (size_t)container_length( &rglist->list );
-};
+	struct list_head link;
+	range_t rg;
+}rangelist_el_t;
 
-#endif //RANGELIST_H_
+
+void rangelist_init( rangelist_t* rglist );
+
+void rangelist_done( rangelist_t* rglist );
+
+int rangelist_add( rangelist_t* rglist, range_t* rg );
+
+int rangelist_get( rangelist_t* rglist, range_t* rg );
+
+bool rangelist_empty( rangelist_t* rglist );
+
+static inline void rangelist_copy( rangelist_t* dst, rangelist_t* src )
+{
+	struct list_head* next = src->head.next;
+	struct list_head* prev = src->head.prev;
+
+	dst->head.next = next;
+	dst->head.prev = prev;
+
+	next->prev = &dst->head;
+	prev->next = &dst->head;
+}
+
+
+
+#define RANGELIST_FOREACH_BEGIN( rglist, rg ) \
+if (!list_empty( &rglist.head )){ \
+    struct list_head* _list_head; \
+    list_for_each( _list_head, &rglist.head ){ \
+	    rangelist_el_t* _el = list_entry( _list_head, rangelist_el_t, link ); \
+		rg = &_el->rg;
+
+
+
+#define RANGELIST_FOREACH_END( ) \
+	} \
+}
+
+

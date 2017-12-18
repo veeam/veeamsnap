@@ -1,7 +1,5 @@
 #pragma once
 
-#ifndef BITMAP_SYNC_H
-#define BITMAP_SYNC_H
 
 typedef struct bitmap_sync_s{
 	spinlock_t lock;
@@ -16,5 +14,3 @@ void bitmap_sync_set( bitmap_sync_t* bitmap, unsigned int index );
 void bitmap_sync_clear( bitmap_sync_t* bitmap, unsigned int index );
 
 int bitmap_sync_find_clear_and_set( bitmap_sync_t* bitmap );
-
-#endif //BITMAP_SYNC_H

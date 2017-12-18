@@ -1,5 +1,6 @@
 #include "stdafx.h"
-
+#include "log.h"
+/*
 
 void log_dump( void* p, size_t size )
 {
@@ -21,5 +22,5 @@ void log_dump( void* p, size_t size )
 		pr_err( "%s\n", str );
 	}
 }
-//////////////////////////////////////////////////////////////////////////
+*/
 

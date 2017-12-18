@@ -1,9 +1,9 @@
 #include "stdafx.h"
-#include "range.h"
-#include "container_spinlocking.h"
 #include "rangevector.h"
+#include "container_spinlocking.h"
 
-void rangevector_create( rangevector_t* rangevector, bool use_lock )
+
+void rangevector_init( rangevector_t* rangevector, bool use_lock )
 {
 	rangevector->use_lock = use_lock;
 
@@ -15,7 +15,7 @@ void rangevector_create( rangevector_t* rangevector, bool use_lock )
 	atomic_set( &rangevector->blocks_cnt, 0);
 }
 
-void rangevector_destroy( rangevector_t* rangevector )
+void rangevector_done( rangevector_t* rangevector )
 {
 	int blocks_cnt = atomic_read( &rangevector->blocks_cnt );
 	log_traceln_d( "blocks_cnt=", blocks_cnt );
@@ -35,7 +35,7 @@ void rangevector_cleanup( rangevector_t* rangevector )
 	}
 }
 
-int rangevector_add( rangevector_t* rangevector, range_t rg )
+int rangevector_add( rangevector_t* rangevector, range_t* rg )
 {
 	int res = SUCCESS;
 
@@ -64,8 +64,8 @@ int rangevector_add( rangevector_t* rangevector, range_t rg )
 		{
 			int last_index = atomic_read( &el->cnt );
 
-			el->ranges[last_index].ofs = rg.ofs;
-			el->ranges[last_index].cnt = rg.cnt;
+			el->ranges[last_index].ofs = rg->ofs;
+			el->ranges[last_index].cnt = rg->cnt;
 
 			atomic_inc( &el->cnt );
 		}
@@ -102,7 +102,29 @@ int rangevector_v2p( rangevector_t* rangevector, sector_t virt_offset, sector_t 
 			virt_left = virt_right;
 		}
 	}
-	RANGEVECTOR_FOREACH_EL_END( rangevector );
+	RANGEVECTOR_FOREACH_EL_END( );
+	RANGEVECTOR_READ_UNLOCK( rangevector )
+	return result;
+}
+
+int rangevector_at( rangevector_t* rangevector, size_t inx, range_t* range )
+{
+	int result = -ENODATA;
+	size_t curr_inx = 0;
+	rangevector_el_t* el;
+	RANGEVECTOR_READ_LOCK( rangevector );
+	RANGEVECTOR_FOREACH_EL_BEGIN( rangevector, el )
+	{
+		size_t el_cnt = atomic_read( &el->cnt );
+		if ((curr_inx + el_cnt) < inx){
+			range->ofs = el->ranges[inx - curr_inx].ofs;
+			range->cnt = el->ranges[inx - curr_inx].cnt;
+			result = SUCCESS;
+			break;
+		}
+		curr_inx += el_cnt;
+	}
+	RANGEVECTOR_FOREACH_EL_END( );
 	RANGEVECTOR_READ_UNLOCK( rangevector )
 	return result;
 }
@@ -141,7 +163,7 @@ void rangevector_sort( rangevector_t* rangevector )
 			}
 			prange_prev = prange;
 		}
-		RANGEVECTOR_FOREACH_END( rangevector );
+		RANGEVECTOR_FOREACH_END( );
 	} while (changed);
 	RANGEVECTOR_WRITE_UNLOCK( rangevector );
 
@@ -158,7 +180,7 @@ sector_t rangevector_length( rangevector_t* rangevector )
 	{
 		length_sect += prange->cnt;
 	}
-	RANGEVECTOR_FOREACH_END( rangevector );
+	RANGEVECTOR_FOREACH_END( );
 	RANGEVECTOR_READ_UNLOCK( rangevector );
 	return length_sect;
 }
@@ -173,7 +195,7 @@ size_t rangevector_cnt( rangevector_t* rangevector )
 	{
 		cnt += (size_t)atomic_read( &el->cnt );
 	}
-	RANGEVECTOR_FOREACH_EL_END( rangevector );
+	RANGEVECTOR_FOREACH_EL_END( );
 	RANGEVECTOR_READ_UNLOCK( rangevector );
 	return cnt;
 }

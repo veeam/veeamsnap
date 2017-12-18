@@ -1,34 +1,19 @@
 #include "stdafx.h"
-#include "container.h"
-#include "container_spinlocking.h"
 #include "snapshot.h"
-#include "range.h"
-#include "rangeset.h"
-#include "rangevector.h"
-#include "sparse_array_1lv.h"
-#include "queue_spinlocking.h"
-#include "blk_dev_utile.h"
-#include "shared_resource.h"
-#include "ctrl_pipe.h"
-#include "snapshotdata.h"
-#include "defer_io.h"
-#include "tracker_queue.h"
-#include "veeamsnap_ioctl.h"
-#include "snapimage.h"
-#include "cbt_map.h"
 #include "tracker.h"
-//////////////////////////////////////////////////////////////////////////
-int _snapshot_destroy( snapshot_t* p_snapshot );
+#include "snapimage.h"
 
-//////////////////////////////////////////////////////////////////////////
+
 static container_t Snapshots;
 
-//////////////////////////////////////////////////////////////////////////
+int _snapshot_destroy( snapshot_t* p_snapshot );
+
+
 int snapshot_Init( void )
 {
-	return container_init( &Snapshots, sizeof( snapshot_t ), NULL/*"vsnap_Snapshots"*/ );
+	return container_init( &Snapshots, sizeof( snapshot_t ) );
 }
-//////////////////////////////////////////////////////////////////////////
+
 int snapshot_Done( void )
 {
 	int result = SUCCESS;
@@ -47,20 +32,21 @@ int snapshot_Done( void )
 		}
 	}
 
-	if (result == SUCCESS)
-		result = container_done( &Snapshots );
+	if (result == SUCCESS){
+		if (SUCCESS != (result = container_done( &Snapshots ))){
+			log_errorln( "Container is not empty" );
+		};
+	}
 	return result;
 }
-//////////////////////////////////////////////////////////////////////////
+
 int _snapshot_New( dev_t* p_dev, int count, snapshot_t** pp_snapshot )
 {
 	int result = SUCCESS;
 	snapshot_t* p_snapshot = NULL;
-	snapshot_map_t* pSnapMap = NULL;
+	dev_t* snap_set = NULL;
 
 	do{
-		int inx = 0;
-
 		p_snapshot = (snapshot_t*)content_new( &Snapshots );
 		if (NULL == p_snapshot){
 			log_errorln( "Cannot allocate memory for snapshot structure." );
@@ -70,31 +56,31 @@ int _snapshot_New( dev_t* p_dev, int count, snapshot_t** pp_snapshot )
 
 		p_snapshot->id = (unsigned long long)( 0 ) + (unsigned long)(p_snapshot );
 
-		p_snapshot->p_snapshot_map = NULL;
-		p_snapshot->snapshot_map_length = 0;
+		p_snapshot->dev_id_set = NULL;
+		p_snapshot->dev_id_set_size = 0;
 
-		pSnapMap = (snapshot_map_t*)dbg_kzalloc( sizeof( snapshot_map_t ) * (1 + count), GFP_KERNEL );
-		if (NULL == pSnapMap){
+		{
+			size_t buffer_length = sizeof( dev_t ) * count;
+			snap_set = (dev_t*)dbg_kzalloc( buffer_length, GFP_KERNEL );
+			if (NULL == snap_set){
 			log_errorln( "Cannot allocate memory for snapshot map." );
 			result = -ENOMEM;
 			break;
 		}
+			memcpy( snap_set, p_dev, buffer_length );
+		}
 
-		for (; inx < count; ++inx)
-			pSnapMap[inx].DevId = p_dev[inx];
-
-
-		p_snapshot->snapshot_map_length = count;
-		p_snapshot->p_snapshot_map = pSnapMap;
+		p_snapshot->dev_id_set_size = count;
+		p_snapshot->dev_id_set = snap_set;
 
 		*pp_snapshot = p_snapshot;
 		container_push_back( &Snapshots, &p_snapshot->content );
 	} while (false);
 
 	if (result != SUCCESS){
-		if (pSnapMap != NULL){
-			dbg_kfree( pSnapMap );
-			pSnapMap = NULL;
+		if (snap_set != NULL){
+			dbg_kfree( snap_set );
+			snap_set = NULL;
 		}
 		if (p_snapshot != NULL){
 			dbg_kfree( p_snapshot );
@@ -104,19 +90,19 @@ int _snapshot_New( dev_t* p_dev, int count, snapshot_t** pp_snapshot )
 	}
 	return result;
 }
-//////////////////////////////////////////////////////////////////////////
-int _snapshot_Free( snapshot_t* p_snapshot )
+
+int _snapshot_Free( snapshot_t* snapshot )
 {
 	int result = SUCCESS;
 
-	if (p_snapshot->p_snapshot_map != NULL){
-		dbg_kfree( p_snapshot->p_snapshot_map );
-		p_snapshot->p_snapshot_map = NULL;
-		p_snapshot->snapshot_map_length = 0;
+	if (snapshot->dev_id_set != NULL){
+		dbg_kfree( snapshot->dev_id_set );
+		snapshot->dev_id_set = NULL;
+		snapshot->dev_id_set_size = 0;
 	}
 	return result;
 }
-//////////////////////////////////////////////////////////////////////////
+
 int _snapshot_Delete( snapshot_t* p_snapshot )
 {
 	int result;
@@ -126,7 +112,7 @@ int _snapshot_Delete( snapshot_t* p_snapshot )
 		content_free( &p_snapshot->content );
 	return result;
 }
-//////////////////////////////////////////////////////////////////////////
+
 typedef struct FindBySnapshotId_s
 {
 	unsigned long long id;
@@ -170,47 +156,37 @@ int snapshot_FindById( unsigned long long id, snapshot_t** pp_snapshot )
 	return result;
 }
 
-int _snapshot_add_data( dev_t DevId )
+int _snapshot_check_data( dev_t dev_id )
 {
+#ifdef SNAPSTORE
 	int result = SUCCESS;
-
-	result = snapshotdata_FindByDevId( DevId, NULL );
-	if (SUCCESS == result){
-		log_traceln_dev_t( "Snapshot data exist for device=", DevId );
+#else
+	int result = snapshotdata_FindByDevId( dev_id, NULL );
+#endif //SNAPSTORE
+	if (SUCCESS != result){
+		log_errorln_dev_t( "Failed to find snapshot data for device=", dev_id );
+		return result;
 	}
-	else if (-ENODATA == result){
-		log_traceln_dev_t( "Failed to link device to snapshot data common disk. device=", DevId );
 
-		result = snapshotdata_AddMemInfo( DevId, SNAPSHOTDATA_MEMORY_SIZE );
-		if (result == SUCCESS){
-			log_traceln_dev_t( "Snapshot data created in memory for device=", DevId );
+	//log_traceln_dev_t( "Snapshot data exist for device=", dev_id );
+	return SUCCESS;
 		}
-		else{
-			log_traceln_dev_t( "Failed to create snapshot data in memory for device=", DevId );
-		}
-	}
-	else{
-		log_traceln_dev_t( "Failed to find snapshot data for device=", DevId );
-	}
 
-	return result;
-}
-//////////////////////////////////////////////////////////////////////////
-int _snapshot_add_tracker( snapshot_map_t* p_dev_map, unsigned int cbt_block_size_degree, unsigned long long snapshot_id )
+int _snapshot_add_tracker( dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long long snapshot_id )
 {
 	int result = SUCCESS;
 	tracker_t* pTracker = NULL;
 
-	log_traceln_dev_t( "Adding. dev_id=", p_dev_map->DevId );
+	log_traceln_dev_t( "dev_id=", dev_id );
 
-	result = tracker_FindByDevId( p_dev_map->DevId, &pTracker );
+	result = tracker_FindByDevId( dev_id, &pTracker );
 	if (SUCCESS == result){
 		if (pTracker->underChangeTracking)
-			log_traceln_dev_t( "Device already under change tracking. Device=", p_dev_map->DevId );
+			log_traceln_dev_t( "Device already under change tracking. Device=", dev_id );
 
 		if (pTracker->snapshot_id != 0){
 			log_errorln( "Device already in snapshot." );
-			log_errorln_dev_t( "    Device=", p_dev_map->DevId );
+			log_errorln_dev_t( "    Device=", dev_id );
 			log_errorln_llx( "    snapshot_id=", pTracker->snapshot_id );
 			result = -EBUSY;
 		}
@@ -218,18 +194,18 @@ int _snapshot_add_tracker( snapshot_map_t* p_dev_map, unsigned int cbt_block_siz
 		pTracker->snapshot_id = snapshot_id;
 	}
 	else if (-ENODATA == result){
-		result = tracker_Create( snapshot_id, p_dev_map->DevId, cbt_block_size_degree, &pTracker );
+		result = tracker_Create( snapshot_id, dev_id, cbt_block_size_degree, &pTracker );
 		if (SUCCESS != result)
-			log_errorln_d( "Failed to create tracker. error=", (0 - result) );
+			log_errorln_d( "Failed to create tracker. error=", result );
 	}
 	else{
-		log_errorln_dev_t( "Container access fail. Device=", p_dev_map->DevId );
-		log_errorln_d( "Error =", (0 - result) );
+		log_errorln_dev_t( "Container access fail. Device=", dev_id );
+		log_errorln_d( "Error =", result );
 	}
 
 	return result;
 }
-//////////////////////////////////////////////////////////////////////////
+
 int _snapshot_remove_device( dev_t dev_id )
 {
 	int result = SUCCESS;
@@ -252,150 +228,170 @@ int _snapshot_remove_device( dev_t dev_id )
 		return result;
 
 	pTracker->snapshot_id = 0;
-
+#ifdef SNAPSTORE
+#else
 	do{
+		snapshotdata_t* snapshotdata = NULL;
+
 		if (!pTracker->underChangeTracking){
 			result = tracker_Remove( pTracker );
 			if (result != SUCCESS)
 				break;
 		}
-		result = snapshotdata_CleanInfo( dev_id );
-	} while (false);
 
+		result = snapshotdata_FindByDevId( dev_id, &snapshotdata );
+		if (result != SUCCESS)
+			break;
+
+		result = snapshotdata_Destroy( snapshotdata );
+	} while (false);
+#endif //SNAPSTORE
 	return result;
 }
-//////////////////////////////////////////////////////////////////////////
-int _snapshot_cleanup( snapshot_t* p_snapshot )
+
+int _snapshot_cleanup( snapshot_t* snapshot )
 {
 	int result = SUCCESS;
 	int inx = 0;
-	unsigned long long snapshot_id = p_snapshot->id;
+	unsigned long long snapshot_id = snapshot->id;
 
-	for (; inx < p_snapshot->snapshot_map_length; ++inx){
-		result = _snapshot_remove_device( p_snapshot->p_snapshot_map[inx].DevId );
+	//log_warnln_llx( "DEBUG! snapshot id=", snapshot_id );
+
+	for (; inx < snapshot->dev_id_set_size; ++inx){
+		result = _snapshot_remove_device( snapshot->dev_id_set[inx] );
 		if (result != SUCCESS){
-			log_errorln_dev_t( "Failed to remove device from snapshot. DevId=", p_snapshot->p_snapshot_map[inx].DevId );
+			log_errorln_dev_t( "Failed to remove device from snapshot. DevId=", snapshot->dev_id_set[inx] );
 		}
 	}
 
-	result = _snapshot_Delete( p_snapshot );
+	result = _snapshot_Delete( snapshot );
 	if (result != SUCCESS){
 		log_errorln_llx( "Failed to delete snapshot. snapshot_id=", snapshot_id );
 	}
 	return result;
 }
-//////////////////////////////////////////////////////////////////////////
-int snapshot_Create( dev_t* p_dev, int count, unsigned int cbt_block_size_degree, unsigned long long* p_snapshot_id )
-{
-	snapshot_t* p_snapshot = NULL;
-	int result = SUCCESS;
-	int inx = 0;
 
-	for (inx = 0; inx < count; ++inx){
-		log_traceln_dev_t( "device=", p_dev[inx] );
+int snapshot_Create( dev_t* dev_id_set, unsigned int dev_id_set_size, unsigned int cbt_block_size_degree, unsigned long long* psnapshot_id )
+{
+	snapshot_t* snapshot = NULL;
+	int result = SUCCESS;
+	unsigned int inx = 0;
+
+	//log_warnln_p( "DEBUG! dev_id_set =", dev_id_set );
+	//log_warnln_d( "DEBUG! dev_id_set_size =", dev_id_set_size );
+
+	for (inx = 0; inx < dev_id_set_size; ++inx){
+		//log_warnln_dev_t( "DEBUG! dev_id ", dev_id_set[inx] );
+
+		result = _snapshot_check_data( dev_id_set[inx] );
+		if (SUCCESS != result)
+			return result;
+
+		log_traceln_dev_t( "device=", dev_id_set[inx] );
 	}
 
-	result = _snapshot_New( p_dev, count, &p_snapshot );
+	result = _snapshot_New( dev_id_set, dev_id_set_size, &snapshot );
 	if (result != SUCCESS){
 		log_errorln( "Cannot create snapshot object." );
-		dbg_mem_track_off( );
 		return result;
 	}
+	do{
+		//log_warnln_p( "DEBUG! snapshot dev_id_set =", snapshot->dev_id_set );
+		//log_warnln_d( "DEBUG! snapshot dev_id_set_size =", snapshot->dev_id_set_size );
+		for (inx = 0; inx < snapshot->dev_id_set_size; ++inx){
+			//log_warnln_dev_t( "DEBUG! snapshot dev_id ", snapshot->dev_id_set[inx] );
 
-	for (inx = 0; inx < count; ++inx){
-
-		result = _snapshot_add_tracker( p_snapshot->p_snapshot_map + inx, cbt_block_size_degree, p_snapshot->id );
-		if (result == SUCCESS){
-			//snapshot data managing
-			_snapshot_add_data( p_snapshot->p_snapshot_map[inx].DevId );
-		}else if (result == -EALREADY){
-			log_traceln_d( "Already under tracking device=", p_dev[inx] );
+			result = _snapshot_add_tracker( snapshot->dev_id_set[inx], cbt_block_size_degree, snapshot->id );
+			if (result == -EALREADY){
+				log_traceln_d( "Already under tracking device=", snapshot->dev_id_set[inx] );
 			result = SUCCESS;
 		}
 		else if (result != SUCCESS){
-			log_errorln_dev_t( "Cannot add device to snapshot tracking. dev_id=", p_dev[inx] );
+				log_errorln_dev_t( "Cannot add device to snapshot tracking. dev_id=", snapshot->dev_id_set[inx] );
 			break;
 		}
 	}
+		if (result != SUCCESS)
+			break;
 
-	if (result == SUCCESS)
-		result = tracker_Freeze( p_snapshot );
 
-	if (SUCCESS == result){
-		*p_snapshot_id = p_snapshot->id;
-		log_traceln_llx( "snapshot_id=", p_snapshot->id );
+		result = tracker_capture_snapshot( snapshot );
+		if (SUCCESS != result){
+			log_errorln_llx( "Cannot capture snapshot ", snapshot->id );
+			break;
+		}
 
-		if (result == SUCCESS){
-			result = snapimage_create_for( p_dev, count );
+		result = snapimage_create_for( snapshot->dev_id_set, snapshot->dev_id_set_size );
 			if (result != SUCCESS){
 				log_errorln( "Cannot create snapshot image devices." );
-			}
-		}
-	}
-	else{
-		int status = tracker_Unfreeze( p_snapshot );
-		if (status != SUCCESS){
-			log_errorln_llx( "Cannot unfreeze snapshot=", p_snapshot->id );
-		}else{
-			container_get( &p_snapshot->content );
-			status = _snapshot_cleanup( p_snapshot );
-			if (status != SUCCESS){
-				log_errorln_llx( "Cannot destroy snapshot=", p_snapshot->id );
-				container_push_back( &Snapshots, &p_snapshot->content );
-			}
-		}
-	}
 
+			tracker_release_snapshot( snapshot );
+			break;
+			}
+
+		*psnapshot_id = snapshot->id;
+		log_traceln_llx( "snapshot_id=", snapshot->id );
+	} while (false);
+
+	if (SUCCESS != result){
+		int res;
+		container_get( &snapshot->content );
+		res = _snapshot_cleanup( snapshot );
+		if (res != SUCCESS){
+			log_errorln_llx( "Cannot destroy snapshot=", snapshot->id );
+			container_push_back( &Snapshots, &snapshot->content );
+		}
+	}
 	return result;
 }
-//////////////////////////////////////////////////////////////////////////
 
-int _snapshot_destroy( snapshot_t* p_snapshot )
+
+int _snapshot_destroy( snapshot_t* snapshot )
 {
 	int result = SUCCESS;
 	size_t inx;
 
-	log_traceln_llx( "snapshot_id=", p_snapshot->id );
+	log_traceln_llx( "snapshot_id=", snapshot->id );
 	//
-	for (inx = 0; inx < p_snapshot->snapshot_map_length; ++inx){
-		result = snapimage_stop( p_snapshot->p_snapshot_map[inx].DevId );
+	for (inx = 0; inx < snapshot->dev_id_set_size; ++inx){
+		result = snapimage_stop( snapshot->dev_id_set[inx] );
 		if (result != SUCCESS){
-			log_errorln_dev_t( "Failed to remove device snapshot image. DevId=", p_snapshot->p_snapshot_map[inx].DevId );
+			log_errorln_dev_t( "Failed to remove device snapshot image. DevId=", snapshot->dev_id_set[inx] );
 		}
 	}
 
-	result = tracker_Unfreeze( p_snapshot );
+	result = tracker_release_snapshot( snapshot );
 	if (result != SUCCESS){
-		log_errorln_llx( "Failed to release snapshot. snapshot_id=", p_snapshot->id );
+		log_errorln_llx( "Failed to release snapshot. snapshot_id=", snapshot->id );
 		return result;
 	}
 
-	for (inx = 0; inx < p_snapshot->snapshot_map_length; ++inx){
-		result = snapimage_destroy( p_snapshot->p_snapshot_map[inx].DevId );
+	for (inx = 0; inx < snapshot->dev_id_set_size; ++inx){
+		result = snapimage_destroy( snapshot->dev_id_set[inx] );
 		if (result != SUCCESS){
-			log_errorln_dev_t( "Failed to remove device snapshot image. DevId=", p_snapshot->p_snapshot_map[inx].DevId );
+			log_errorln_dev_t( "Failed to remove device snapshot image. DevId=", snapshot->dev_id_set[inx] );
 		}
 	}
 
-	return _snapshot_cleanup( p_snapshot );
+	return _snapshot_cleanup( snapshot );
 }
 
 int snapshot_Destroy( unsigned long long snapshot_id )
 {
 	int result = SUCCESS;
-	snapshot_t* p_snapshot = NULL;
+	snapshot_t* snapshot = NULL;
 
-	result = snapshot_FindById( snapshot_id, &p_snapshot );
+	result = snapshot_FindById( snapshot_id, &snapshot );
 	if (result != SUCCESS){
 		log_errorln_llx( "Cannot find snapshot by snapshot_id=", snapshot_id );
 		return result;
 	}
-	container_get( &p_snapshot->content );
-	result = _snapshot_destroy( p_snapshot );
+	container_get( &snapshot->content );
+	result = _snapshot_destroy( snapshot );
 	if (result != SUCCESS){
-		container_push_back( &Snapshots, &p_snapshot->content );
+		container_push_back( &Snapshots, &snapshot->content );
 	}
 	return result;
 }
 
-//////////////////////////////////////////////////////////////////////////
+

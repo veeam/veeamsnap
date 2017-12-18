@@ -3,15 +3,11 @@
 #include "sparse_bitmap.h"
 #include "mem_alloc.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif  /* __cplusplus */
-
 #define BLK_ST_EMPTY 0
 #define BLK_ST_USE   1
 #define BLK_ST_FULL  2
 
-//////////////////////////////////////////////////////////////////////////
+//#define _TRACE
 struct kmem_cache* g_sparse_block_cache = NULL;
 
 int sparsebitmap_init( void )
@@ -36,32 +32,40 @@ void  sparsebitmap_done( void )
 #endif
 }
 
-static inline blocks_array_t* __sparse_block_array_new( int init_value )
+static inline blocks_array_t* _sparse_block_array_new( int init_value )
 {
 	blocks_array_t* blocks_array = NULL;
 #ifdef SPARSE_BLOCK_CACHEABLE
-	while (NULL == (blocks_array = kmem_cache_alloc( g_sparse_block_cache, GFP_NOIO ))){
+	blocks_array = kmem_cache_alloc( g_sparse_block_cache, GFP_NOIO );
 #else
-	while (NULL == (blocks_array = dbg_kmalloc( sizeof( blocks_array_t ), GFP_NOIO ))){
+	blocks_array = dbg_kmalloc( sizeof( blocks_array_t ), GFP_NOIO );
 #endif
-		log_errorln( "Cannot allocate memory NOIO. Schedule." );
-		schedule( );
-	}
+
+	if (blocks_array == NULL)
+		return NULL;
+#ifdef _TRACE
+	log_warnln( "++" );
+#endif
 	memset( blocks_array, init_value, sizeof( blocks_array_t ) );
 	return blocks_array;
 }
 
-static inline void __sparse_block_array_free( blocks_array_t* blocks_array )
+static inline void _sparse_block_array_free( blocks_array_t* blocks_array )
 {
+	if (blocks_array != NULL){
 #ifdef SPARSE_BLOCK_CACHEABLE
 	kmem_cache_free( g_sparse_block_cache, blocks_array );
 #else
 	dbg_kfree( blocks_array );
 #endif
+#ifdef _TRACE
+		log_warnln( "--" );
+#endif
+}
 }
 
-//////////////////////////////////////////////////////////////////////////
-void __sparse_block_init( sparse_block_t* block, char level, void* block_state )
+
+void _sparse_block_init( sparse_block_t* block, char level, void* block_state )
 {
 	block->level = level;
 
@@ -76,7 +80,8 @@ void __sparse_block_init( sparse_block_t* block, char level, void* block_state )
 
 	block->blocks_array = block_state;
 }
-sparse_block_t* __sparse_block_create( char level, void* block_state )
+
+sparse_block_t* _sparse_block_create( char level, void* block_state )
 {
 	sparse_block_t* block;
 	while (NULL == (block = dbg_kmalloc( sizeof( sparse_block_t ), GFP_NOIO ))){
@@ -85,16 +90,16 @@ sparse_block_t* __sparse_block_create( char level, void* block_state )
 	}
 
 	if (block != NULL)
-		__sparse_block_init( block, level, block_state );
+		_sparse_block_init( block, level, block_state );
 	return block;
 }
-//////////////////////////////////////////////////////////////////////////
-void __sparse_block_destroy( sparse_block_t* block )
+
+void _sparse_block_destroy( sparse_block_t* block )
 {
 	dbg_kfree( block );
 }
-//////////////////////////////////////////////////////////////////////////
-void __sparse_block_free( sparse_block_t* block )
+
+void _sparse_block_free( sparse_block_t* block )
 {
 	if (block->level == 0){
 		block->bit_block = 0;
@@ -106,14 +111,14 @@ void __sparse_block_free( sparse_block_t* block )
 			for (inx = 0; inx < SPARSE_BITMAP_BLOCK_SIZE; inx++){
 
 				if ((block->blocks_array->blk[inx] != BLOCK_FULL) && (block->blocks_array->blk[inx] != BLOCK_EMPTY)){
-					__sparse_block_free( block->blocks_array->blk[inx] );
+					_sparse_block_free( block->blocks_array->blk[inx] );
 
-					__sparse_block_destroy( block->blocks_array->blk[inx] );
+					_sparse_block_destroy( block->blocks_array->blk[inx] );
 					block->blocks_array->blk[inx] = NULL;
 				}
 			}
 
-			__sparse_block_array_free( block->blocks_array );
+			_sparse_block_array_free( block->blocks_array );
 			block->blocks_array = NULL;
 
 			block->fill_count = 0;
@@ -121,8 +126,8 @@ void __sparse_block_free( sparse_block_t* block )
 		}
 	}
 }
-//////////////////////////////////////////////////////////////////////////
-int __sparse_block_clear( sparse_block_t* block, stream_size_t index, char* p_blk_st )
+
+int _sparse_block_clear( sparse_block_t* block, stream_size_t index, char* p_blk_st )
 {
 	char blk_st = BLK_ST_USE;
 	int res = SUCCESS;
@@ -153,14 +158,22 @@ int __sparse_block_clear( sparse_block_t* block, stream_size_t index, char* p_bl
 			break;
 		}
 
-		if (block->blocks_array == BLOCK_FULL)
-			block->blocks_array = __sparse_block_array_new( 0xFF );//all blocks is full
+		if (block->blocks_array == BLOCK_FULL){
+			blocks_array_t* blocks_array = _sparse_block_array_new( 0xFF );//all blocks is full
+			if (blocks_array)
+				block->blocks_array = blocks_array;
+			else{
+				res = -ENOMEM;
+				break;
+			}
+
+		}
 
 		if (block->blocks_array->blk[inx] == BLOCK_EMPTY)
 			break; //already empty
 
 		if (block->blocks_array->blk[inx] == BLOCK_FULL){
-			block->blocks_array->blk[inx] = __sparse_block_create( block->level - 1, BLOCK_FULL );
+			block->blocks_array->blk[inx] = _sparse_block_create( block->level - 1, BLOCK_FULL );
 			if (block->blocks_array->blk[inx] == NULL){
 				res = -ENOMEM;
 				break;
@@ -170,19 +183,19 @@ int __sparse_block_clear( sparse_block_t* block, stream_size_t index, char* p_bl
 
 		{
 			char sub_blk_state;
-			res = __sparse_block_clear( block->blocks_array->blk[inx], index, &sub_blk_state );
+			res = _sparse_block_clear( block->blocks_array->blk[inx], index, &sub_blk_state );
 			if (res != SUCCESS)
 				break;
 
 			if (sub_blk_state == BLK_ST_EMPTY){
-				__sparse_block_destroy( block->blocks_array->blk[inx] );
+				_sparse_block_destroy( block->blocks_array->blk[inx] );
 				block->blocks_array->blk[inx] = BLOCK_EMPTY;
 				--block->fill_count;
 
 				if (block->fill_count == 0){
 					blk_st = BLK_ST_EMPTY;
 
-					__sparse_block_array_free( block->blocks_array );
+					_sparse_block_array_free( block->blocks_array );
 					block->blocks_array = BLOCK_EMPTY;
 				}
 			}
@@ -193,8 +206,8 @@ int __sparse_block_clear( sparse_block_t* block, stream_size_t index, char* p_bl
 	*p_blk_st = blk_st;
 	return res;
 }
-//////////////////////////////////////////////////////////////////////////
-int __sparse_block_set( sparse_block_t* block, stream_size_t index, char* p_blk_st )
+
+int _sparse_block_set( sparse_block_t* block, stream_size_t index, char* p_blk_st )
 {
 	char blk_st = BLK_ST_USE;
 	int res = SUCCESS;
@@ -226,16 +239,22 @@ int __sparse_block_set( sparse_block_t* block, stream_size_t index, char* p_blk_
 			break;
 		}
 
-		if (block->blocks_array == BLOCK_EMPTY)
-			block->blocks_array = __sparse_block_array_new( 0x00 ); //all blocks is empty
-
+		if (block->blocks_array == BLOCK_EMPTY){
+			blocks_array_t* blocks_array = _sparse_block_array_new( 0x00 ); //all blocks is empty
+			if (blocks_array)
+				block->blocks_array = blocks_array;
+			else{
+				res = -ENOMEM;
+				break;
+			}
+		}
 		if (block->blocks_array->blk[inx] == BLOCK_FULL){
 			res = -EALREADY;
 			break; //already full
 		}
 
 		if (block->blocks_array->blk[inx] == BLOCK_EMPTY){
-			block->blocks_array->blk[inx] = __sparse_block_create( block->level - 1, BLOCK_EMPTY );
+			block->blocks_array->blk[inx] = _sparse_block_create( block->level - 1, BLOCK_EMPTY );
 			if (block->blocks_array->blk[inx] == NULL){
 				res = -ENOMEM;
 				break;
@@ -245,14 +264,14 @@ int __sparse_block_set( sparse_block_t* block, stream_size_t index, char* p_blk_
 
 		{
 			char sub_blk_st;
-			res = __sparse_block_set( block->blocks_array->blk[inx], index, &sub_blk_st );
+			res = _sparse_block_set( block->blocks_array->blk[inx], index, &sub_blk_st );
 			if (res != SUCCESS)
 				break;
 
 			if (sub_blk_st == BLK_ST_FULL){
 				//log_errorln_llx( "block full. index=", index );
 
-				__sparse_block_destroy( block->blocks_array->blk[inx] );
+				_sparse_block_destroy( block->blocks_array->blk[inx] );
 				block->blocks_array->blk[inx] = BLOCK_FULL;
 				++block->cnt_full;
 
@@ -261,7 +280,7 @@ int __sparse_block_set( sparse_block_t* block, stream_size_t index, char* p_blk_
 
 					blk_st = BLK_ST_FULL;
 
-					__sparse_block_array_free( block->blocks_array );
+					_sparse_block_array_free( block->blocks_array );
 					block->blocks_array = BLOCK_FULL;
 				}
 			}
@@ -273,45 +292,35 @@ int __sparse_block_set( sparse_block_t* block, stream_size_t index, char* p_blk_
 
 	return res;
 }
-//////////////////////////////////////////////////////////////////////////
-bool __sparse_block_get( sparse_block_t* block, stream_size_t index )
+
+bool _sparse_block_get( sparse_block_t* block, stream_size_t index )
 {
-	bool result;
+	size_t inx;
+
 	if (block->level == 0){
 		size_t inx = (size_t)(index  & SPARSE_BITMAP_BLOCK_SIZE_MASK);
 		size_t bit_mask = ((size_t)(1) << inx);
 
-		result = ((block->bit_block & bit_mask) != 0);
+		return ((block->bit_block & bit_mask) != 0);
 	}
-	else{
-		do{
-			size_t inx = (size_t)(index >> (SPARSE_BITMAP_BLOCK_SIZE_DEGREE * block->level)) & SPARSE_BITMAP_BLOCK_SIZE_MASK;
 
-			if (block->blocks_array == BLOCK_FULL){
-				result = true;
-				break;
-			}
-			if (block->blocks_array == BLOCK_EMPTY){
-				result = false;
-				break;
-			}
+	if (block->blocks_array == BLOCK_FULL)
+		return true;
 
-			if (block->blocks_array->blk[inx] == BLOCK_FULL){
-				result = true;
-				break;
-			}
-			if (block->blocks_array->blk[inx] == BLOCK_EMPTY){
-				result = false;
-				break;
-			}
+	if (block->blocks_array == BLOCK_EMPTY)
+		return false;
 
-			result = __sparse_block_get( block->blocks_array->blk[inx], index );
-		} while (false);
+	inx = (size_t)(index >> (SPARSE_BITMAP_BLOCK_SIZE_DEGREE * block->level)) & SPARSE_BITMAP_BLOCK_SIZE_MASK;
+	if (block->blocks_array->blk[inx] == BLOCK_FULL)
+		return true;
+
+	if (block->blocks_array->blk[inx] == BLOCK_EMPTY)
+		return false;
+
+	return _sparse_block_get( block->blocks_array->blk[inx], index );
 	}
-	return result;
-}
-//////////////////////////////////////////////////////////////////////////
-char __calc_level( stream_size_t ull )
+
+char _calc_level( stream_size_t ull )
 {
 	char level = 0;
 	while (ull > SPARSE_BITMAP_BLOCK_SIZE){
@@ -321,10 +330,10 @@ char __calc_level( stream_size_t ull )
 	return level;
 }
 
-//////////////////////////////////////////////////////////////////////////
+
 void sparsebitmap_create( sparse_bitmap_t* bitmap, stream_size_t min_index, stream_size_t length )
 {
-	char level = __calc_level( length );
+	char level = _calc_level( length );
 	bitmap->start_index = min_index;
 	bitmap->length = length;
 
@@ -332,18 +341,17 @@ void sparsebitmap_create( sparse_bitmap_t* bitmap, stream_size_t min_index, stre
 	log_traceln_llx( "length=", bitmap->length );
 	log_traceln_d( "levels=", level );
 
-	__sparse_block_init( &(bitmap->sparse_block), level, BLOCK_EMPTY );
+	_sparse_block_init( &(bitmap->sparse_block), level, BLOCK_EMPTY );
 }
-//////////////////////////////////////////////////////////////////////////
+
 void sparsebitmap_destroy( sparse_bitmap_t* bitmap )
 {
 	sparsebitmap_Clean( bitmap );
 }
-//////////////////////////////////////////////////////////////////////////
+
 
 int sparsebitmap_Set( sparse_bitmap_t* bitmap, stream_size_t index, bool state )
 {
-	int res;
 	char blk_st;
 
 	if ((index < bitmap->start_index) || (index >= (bitmap->start_index + bitmap->length))){
@@ -353,93 +361,130 @@ int sparsebitmap_Set( sparse_bitmap_t* bitmap, stream_size_t index, bool state )
 	index = index - bitmap->start_index;
 
 	if (state)
-		res = __sparse_block_set( &bitmap->sparse_block, index, &blk_st );
+		return _sparse_block_set( &bitmap->sparse_block, index, &blk_st );
 	else
-		res = __sparse_block_clear( &bitmap->sparse_block, index, &blk_st );
-
-	return res;
+		return _sparse_block_clear( &bitmap->sparse_block, index, &blk_st );
 }
-//////////////////////////////////////////////////////////////////////////
+
 int sparsebitmap_Get( sparse_bitmap_t* bitmap, stream_size_t index, bool* p_state )
 {
 	if ((index < bitmap->start_index) || (index >= (bitmap->start_index + bitmap->length)))
 		return -EINVAL;
 	index = index - bitmap->start_index;
 
-	*p_state = __sparse_block_get( &bitmap->sparse_block, index );
+	*p_state = _sparse_block_get( &bitmap->sparse_block, index );
 	return SUCCESS;
 }
-//////////////////////////////////////////////////////////////////////////
+
 void sparsebitmap_Clean( sparse_bitmap_t* bitmap )
 {
-	__sparse_block_free( &bitmap->sparse_block );
+	_sparse_block_free( &bitmap->sparse_block );
 	bitmap->length = 0;
 	bitmap->start_index = 0;
 }
-//////////////////////////////////////////////////////////////////////////
-int sparsebitmap_SetRange( sparse_bitmap_t* bitmap, range_t* rg, bool state )
+
+void _sparse_block_get_ranges_leaf( sparse_block_t* block, rangelist_t* rangelist, sector_t* index, range_t* rg )
 {
-	char blk_st;
-	stream_size_t index;
+	size_t inx;
 
-	if ((rg->ofs < bitmap->start_index) || ((rg->ofs+rg->cnt) >= (bitmap->start_index + bitmap->length))){
-		log_errorln( "Out of range");
-		log_errorln_sect( "  ofs= ", rg->ofs );
-		log_errorln_sect( "  cnt= ", rg->cnt );
-		return -EINVAL;
-	}
-
-	for (index = rg->ofs - bitmap->start_index; index < (rg->ofs + rg->cnt - bitmap->start_index); ++index){
-		int res;
-		if (state)
-			res = __sparse_block_set( &bitmap->sparse_block, index, &blk_st );
-		else
-			res = __sparse_block_clear( &bitmap->sparse_block, index, &blk_st );
-
-		if ((res != SUCCESS) && (res != -EALREADY)){
-			log_errorln_lld( "Failed to set bit #", index );
-			return res;
-		}
-	}
-
-	return SUCCESS;
-}
-
-//////////////////////////////////////////////////////////////////////////
-int sparsebitmap_GetFirstRange( sparse_bitmap_t* bitmap, stream_size_t min_index, range_t* p_rg )
-{
-	stream_size_t index = min_index;
-	range_t rg;
-
-	if ((min_index < bitmap->start_index) || (min_index >= (bitmap->start_index + bitmap->length)))
-		return -EINVAL;
-
-	rg.cnt = 0;
-	rg.ofs = 0;
-	do{
-		if (__sparse_block_get( &bitmap->sparse_block, index )){
-			if (rg.cnt == 0)
-				rg.ofs = index;
-			++rg.cnt;
-		}
+	for (inx = 0; inx < SPARSE_BITMAP_BLOCK_SIZE; ++inx){
+		size_t bit_mask = ((size_t)(1) << inx);
+		if ((block->bit_block & bit_mask) != 0){
+			if (range_is_empty( rg ))
+				rg->ofs = *index;
+			++rg->cnt;
+	    }
 		else{
-			if (rg.cnt != 0)
-				break; // found end of range
+			if (!range_is_empty( rg )){
+
+				//log_traceln_range( "rg=", (*rg) );
+
+				rangelist_add( rangelist, rg );
+				*rg = range_empty( );
+			}
 		}
 
-		++index;
-	} while (index < bitmap->length);
-
-	if (rg.cnt == 0)
-		return -ENODATA;
-
-	p_rg->ofs = rg.ofs + bitmap->start_index;
-	p_rg->cnt = rg.cnt;
-
-	return SUCCESS;
+		++*index;
+	}
 }
-//////////////////////////////////////////////////////////////////////////
 
-#ifdef __cplusplus
+void _sparse_block_get_ranges_full( sparse_block_t* block, sector_t* index, range_t* rg )
+{
+	sector_t block_size = (sector_t)(1) << (SPARSE_BITMAP_BLOCK_SIZE_DEGREE * block->level);
+
+	//log_traceln_sect( "block full index=", (*index) );
+	//log_traceln_sect( "block_size=", block_size );
+
+	if (range_is_empty( rg ))
+		rg->ofs = *index;
+	rg->cnt += block_size;
+
+	*index += block_size;
+		}
+
+void _sparse_block_get_ranges_empty( sparse_block_t* block, sector_t* index, range_t* rg, rangelist_t* rangelist )
+{
+	sector_t block_size = (sector_t)(1) << (SPARSE_BITMAP_BLOCK_SIZE_DEGREE * block->level);
+
+	//log_traceln_sect( "block empty index=", (*index) );
+	//log_traceln_sect( "block_size=", block_size );
+
+	if (!range_is_empty( rg )){
+
+		//log_traceln_range( "rg=", (*rg) );
+
+		rangelist_add( rangelist, rg );
+		*rg = range_empty( );
+	}
+
+	*index += block_size;
 }
-#endif  /* __cplusplus */
+
+void _sparse_block_get_ranges( sparse_block_t* block, rangelist_t* rangelist, sector_t* index, range_t* rg );
+
+void _sparse_block_get_ranges_block( sparse_block_t* block, rangelist_t* rangelist, sector_t* index, range_t* rg )
+{
+
+	if (block->blocks_array == BLOCK_FULL)
+		_sparse_block_get_ranges_full( block, index, rg );
+	else if (block->blocks_array == BLOCK_EMPTY)
+		_sparse_block_get_ranges_empty( block, index, rg, rangelist );
+	else {
+		size_t inx;
+
+		for (inx = 0; inx < SPARSE_BITMAP_BLOCK_SIZE; ++inx){
+			void* blk = block->blocks_array->blk[inx];
+
+			if (blk == BLOCK_FULL)
+				_sparse_block_get_ranges_full( block, index, rg );
+			else if (blk == BLOCK_EMPTY)
+				_sparse_block_get_ranges_empty( block, index, rg, rangelist );
+			else
+				_sparse_block_get_ranges( blk, rangelist, index, rg );
+		}
+	}
+		}
+
+void _sparse_block_get_ranges( sparse_block_t*	block, rangelist_t* rangelist, sector_t* index, range_t* rg )
+{
+	//log_traceln_sect( "index=", (*index) );
+	//log_traceln_d( "block_level=", block->level );
+
+	if (block->level == 0)
+		_sparse_block_get_ranges_leaf( block, rangelist, index, rg );
+	else
+		_sparse_block_get_ranges_block( block, rangelist, index, rg );
+		}
+
+void sparsebitmap_convert2rangelist( sparse_bitmap_t* bitmap, rangelist_t* rangelist, sector_t start_index )
+{
+	range_t rg = range_empty( );
+
+	_sparse_block_get_ranges( &bitmap->sparse_block, rangelist, &start_index, &rg );
+
+	if (!range_is_empty( &rg )){
+		//log_traceln_range( "rg=", rg );
+
+		rangelist_add( rangelist, &rg );
+	}
+}

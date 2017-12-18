@@ -1,28 +1,23 @@
 #pragma once
+#include "container.h"
 
-#ifndef SNAPSHOT_H
-#define SNAPSHOT_H
-
-typedef struct snapshot_map_s
-{
-	dev_t DevId;
-}snapshot_map_t;
 
 typedef struct snapshot_s
 {
 	content_t content;
 	unsigned long long id;
-	int snapshot_map_length;
-	snapshot_map_t* p_snapshot_map;    //array
+
+	dev_t* dev_id_set;    //array
+	int dev_id_set_size;
 }snapshot_t;
 
 int snapshot_Init( void );
 int snapshot_Done( void );
 
-int snapshot_FindById( unsigned long long id, snapshot_t** pp_snapshot );
+int snapshot_FindById( unsigned long long id, snapshot_t** psnapshot );
 
-int snapshot_Create( dev_t* p_dev, int count, unsigned int cbt_block_size_degree, unsigned long long* p_snapshot_id );
+int snapshot_Create( dev_t* dev_id_set, unsigned int dev_id_set_size, unsigned int cbt_block_size_degree, unsigned long long* psnapshot_id );
 
 int snapshot_Destroy( unsigned long long snapshot_id );
 
-#endif//SNAPSHOT_H
+

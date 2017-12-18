@@ -1,6 +1,4 @@
 #pragma once
-#ifndef SECTOR_CONVERSION_H
-#define SECTOR_CONVERSION_H
 
 static __inline unsigned int sector_to_uint( sector_t sect )
 {
@@ -31,5 +29,3 @@ static __inline sector_t sector_from_streamsize( stream_size_t steamsize )
 {
 	return (sector_t)(steamsize >> SECTOR512_SHIFT);
 }
-
-#endif //SECTOR_CONVERSION_H

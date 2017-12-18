@@ -1,5 +1,4 @@
-#ifndef QUEUE_SPINLOCKING_H
-#define QUEUE_SPINLOCKING_H
+#pragma once
 
 typedef struct queue_sl_s
 {
@@ -10,7 +9,6 @@ typedef struct queue_sl_s
 	int content_size;
 	atomic_t in_queue_cnt;
 	atomic_t alloc_cnt;
-	struct kmem_cache * content_cache;
 }queue_sl_t;
 
 typedef struct queue_content_sl_s
@@ -20,7 +18,7 @@ typedef struct queue_content_sl_s
 }queue_content_sl_t;
 
 
-int queue_sl_init( queue_sl_t* queue, int content_size, char* cache_name );
+int queue_sl_init( queue_sl_t* queue, int content_size );
 int queue_sl_done( queue_sl_t* queue );
 
 queue_content_sl_t* queue_content_sl_new_opt( queue_sl_t* queue, gfp_t gfp_opt );
@@ -39,6 +37,3 @@ bool queue_sl_active( queue_sl_t* queue, bool state );
 
 #define queue_sl_unactive( queue ) \
 	( (atomic_read( &((queue).active_state) ) == false) && (atomic_read( &((queue).alloc_cnt) ) == 0) )
-
-
-#endif//QUEUE_SPINLOCKING_H

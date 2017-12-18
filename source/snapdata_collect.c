@@ -1,38 +1,29 @@
 #include "stdafx.h"
-#include "container.h"
-#include "container_spinlocking.h"
-#include "queue_spinlocking.h"
-#include "blk_dev_utile.h"
-#include "range.h"
-#include "sparse_bitmap.h"
-#include "rangeset.h"
-#include "rangelist.h"
-#include "log.h"
-#include "tracker_queue.h"
-
 #include "snapdata_collect.h"
-//////////////////////////////////////////////////////////////////////////
+#include "blk_util.h"
 
-//////////////////////////////////////////////////////////////////////////
+
 static container_sl_t SnapdataCollectors;
 
-//////////////////////////////////////////////////////////////////////////
-int __collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicUserBuff, size_t MagicLength );
-void __collector_free( snapdata_collector_t* collector );
 
-//////////////////////////////////////////////////////////////////////////
+int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicUserBuff, size_t MagicLength );
+void _collector_free( snapdata_collector_t* collector );
+
+
 int snapdata_collect_Init( void )
 {
-	return container_sl_init( &SnapdataCollectors, sizeof( snapdata_collector_t ), NULL );
+	container_sl_init( &SnapdataCollectors, sizeof( snapdata_collector_t ));
+	return SUCCESS;
 }
-//////////////////////////////////////////////////////////////////////////
+
+
 int snapdata_collect_Done( void )
 {
 	int res;
 	content_sl_t* content = NULL;
 
 	while (NULL != (content = container_sl_get_first( &SnapdataCollectors ))){
-		__collector_free( (snapdata_collector_t*)content );
+		_collector_free( (snapdata_collector_t*)content );
 		content_sl_free( (content_sl_t*)content );
 		content = NULL;
 	}
@@ -44,8 +35,8 @@ int snapdata_collect_Done( void )
 	return res;
 }
 
-//////////////////////////////////////////////////////////////////////////
-int __collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicUserBuff, size_t MagicLength )
+
+int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicUserBuff, size_t MagicLength )
 {
 	int res = SUCCESS;
 
@@ -55,12 +46,16 @@ int __collector_init( snapdata_collector_t* collector, dev_t dev_id, void* Magic
 
 	res = blk_dev_open( collector->dev_id, &collector->device );
 	if (res != SUCCESS){
-		log_errorln_d( "Caanot open device. rresult=", 0 - res );
+		log_errorln_d( "Caanot open device. rresult=", res );
 		return res;
 	}
 
 	collector->magic_size = MagicLength;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
 	collector->magic_buff = dbg_kmalloc( collector->magic_size, GFP_KERNEL | __GFP_REPEAT );
+#else
+	collector->magic_buff = dbg_kmalloc( collector->magic_size, GFP_KERNEL | __GFP_RETRY_MAYFAIL );
+#endif
 	if (collector->magic_buff == NULL){
 		log_errorln( "Failed to reference tracker_queue " );
 		return -ENOMEM;
@@ -112,18 +107,20 @@ int __collector_init( snapdata_collector_t* collector, dev_t dev_id, void* Magic
 
 	return res;
 }
-//////////////////////////////////////////////////////////////////////////
-void __collector_stop( snapdata_collector_t* collector )
+
+
+void _collector_stop( snapdata_collector_t* collector )
 {
 	if (collector->tracker_queue != NULL){
 		tracker_queue_Unref( collector->tracker_queue );
 		collector->tracker_queue = NULL;
 	}
 }
-//////////////////////////////////////////////////////////////////////////
-void __collector_free( snapdata_collector_t* collector )
+
+
+void _collector_free( snapdata_collector_t* collector )
 {
-	__collector_stop( collector );
+	_collector_stop( collector );
 #ifdef SNAPDATA_SPARSE_CHANGES
 	sparsebitmap_destroy( &collector->changes_sparse );
 #else
@@ -141,7 +138,8 @@ void __collector_free( snapdata_collector_t* collector )
 		collector->device = NULL;
 	}
 }
-//////////////////////////////////////////////////////////////////////////
+
+
 int snapdata_collect_LocationStart( dev_t dev_id, void* MagicUserBuff, size_t MagicLength )
 {
 	snapdata_collector_t* collector = NULL;
@@ -155,11 +153,11 @@ int snapdata_collect_LocationStart( dev_t dev_id, void* MagicUserBuff, size_t Ma
 		return  -ENOMEM;
 	}
 
-	res = __collector_init( collector, dev_id, MagicUserBuff, MagicLength );
+	res = _collector_init( collector, dev_id, MagicUserBuff, MagicLength );
 	if (res == SUCCESS){
 		container_sl_push_back( &SnapdataCollectors, &collector->content );
 	}else{
-		__collector_free( collector );
+		_collector_free( collector );
 
 		content_sl_free( &collector->content );
 		collector = NULL;
@@ -167,9 +165,12 @@ int snapdata_collect_LocationStart( dev_t dev_id, void* MagicUserBuff, size_t Ma
 
 	return res;
 }
-//////////////////////////////////////////////////////////////////////////
-int snapdata_collect_LocationGet( dev_t dev_id, rangelist_t* rangelist )
+
+
+int snapdata_collect_LocationGet( dev_t dev_id, rangelist_t* rangelist, size_t* ranges_count )
 {
+	size_t count = 0;
+	sector_t ranges_length = 0;
 	snapdata_collector_t* collector = NULL;
 	int res;
 
@@ -180,7 +181,7 @@ int snapdata_collect_LocationGet( dev_t dev_id, rangelist_t* rangelist )
 		return res;
 	}
 
-	__collector_stop( collector );
+	_collector_stop( collector );
 
 	if (collector->fail_code != SUCCESS){
 		log_errorln_d( "Collecting fail. err code=", 0-collector->fail_code );
@@ -188,33 +189,33 @@ int snapdata_collect_LocationGet( dev_t dev_id, rangelist_t* rangelist )
 	}
 #ifdef SNAPDATA_SPARSE_CHANGES
 	{
-		range_t rg;
-		size_t rg_cnt = 0;
-		sector_t ranges_length = 0;
 		sector_t first_index = collector->changes_sparse.start_index;
+		sparsebitmap_convert2rangelist( &collector->changes_sparse, rangelist, first_index );
 
-		while (SUCCESS == sparsebitmap_GetFirstRange( &collector->changes_sparse, first_index, &rg )){
-			if (rg.cnt != 0){
-				first_index = rg.ofs + rg.cnt + 1;
+		{//calculate and show information about ranges
+			range_t* rg;
+			RANGELIST_FOREACH_BEGIN( (*rangelist), rg )
+			{
+				ranges_length += rg->cnt;
+				++count;
 			}
-
-			pr_warn( "    %s: #%lu ofs=%llx cnt=%llx\n", MODULE_NAME, (unsigned long)rg_cnt, (unsigned long long)rg.ofs, (unsigned long long)rg.cnt );
-			rangelist_Add( rangelist, &rg );
-			ranges_length += rg.cnt;
-
-			++rg_cnt;
-		};
-		log_traceln_sect( "ranges_length=", ranges_length );
+			RANGELIST_FOREACH_END( );
+			log_traceln_sz( "range_count=", count );
+			log_traceln_sect( "ranges_length=", ranges_length );
+		}
 	}
 #else
 	{
-		size_t rg_cnt = 0;
 		range_t rg = { 0 };
-		sector_t ranges_length = 0;
 		sector_t index = 0;
 
 		while (index < collector->length){
-			if (page_array_bit_get( collector->changes, index )){
+			bool bit;
+			res = page_array_bit_get( collector->changes, index, &bit );
+			if (res != SUCCESS)
+				break;
+
+			if ( bit ){
 				if (rg.cnt == 0){
 					rg.ofs = collector->start_index + index;
 				}
@@ -225,36 +226,41 @@ int snapdata_collect_LocationGet( dev_t dev_id, rangelist_t* rangelist )
 					// nothing
 				}
 				else{
-					pr_warn( "    %s: #%ld ofs=%llx cnt=%llx\n", MODULE_NAME, rg_cnt, (unsigned long long)rg.ofs, (unsigned long long)rg.cnt );
+					pr_warn( "    %s: #%ld ofs=%llx cnt=%llx\n", MODULE_NAME, count, (unsigned long long)rg.ofs, (unsigned long long)rg.cnt );
 
-					rangelist_Add( rangelist, &rg );
+					rangelist_add( rangelist, &rg );
 					ranges_length += rg.cnt;
+					++count;
 
 					rg.cnt = 0;
-					++rg_cnt;
 				}
 			}
 			++index;
 		}
-		if (rg.cnt != 0){
-			pr_warn( "    %s: #%ld ofs=%llx cnt=%llx\n", MODULE_NAME, rg_cnt, (unsigned long long)rg.ofs, (unsigned long long)rg.cnt );
 
-			rangelist_Add( rangelist, &rg );
+		if ((res == SUCCESS) && (rg.cnt != 0)){
+			pr_warn( "    %s: #%ld ofs=%llx cnt=%llx\n", MODULE_NAME, count, (unsigned long long)rg.ofs, (unsigned long long)rg.cnt );
+
+			rangelist_add( rangelist, &rg );
 			ranges_length += rg.cnt;
+			++count;
 
 			rg.cnt = 0;
-			++rg_cnt;
-		}
 
-		log_traceln_sect( "ranges_length=", ranges_length );
+			log_traceln_sz( "range_count=", count );
+			log_traceln_sect( "ranges_length=", ranges_length );
+		}
 	}
 #endif
 
-	log_traceln_llx( "processed_size=", collector->collected_size );
-
-	return SUCCESS;
+	if (res == SUCCESS){
+		log_traceln_llx( "processed_size=", collector->collected_size );
+		*ranges_count = count;
+	}
+	return res;
 }
-//////////////////////////////////////////////////////////////////////////
+
+
 int snapdata_collect_LocationComplete( dev_t dev_id )
 {
 	snapdata_collector_t* collector = NULL;
@@ -267,12 +273,12 @@ int snapdata_collect_LocationComplete( dev_t dev_id )
 		return res;
 	}
 
-	__collector_free( collector );
+	_collector_free( collector );
 	container_sl_free( &collector->content );
 
 	return res;
 }
-//////////////////////////////////////////////////////////////////////////
+
 
 int snapdata_collect_Get( dev_t dev_id, snapdata_collector_t** p_collector )
 {
@@ -313,8 +319,9 @@ int snapdata_collect_Find( struct request_queue *q, struct bio *bio, snapdata_co
 	CONTAINER_SL_FOREACH_END( SnapdataCollectors );
 	return res;
 }
-//////////////////////////////////////////////////////////////////////////
-int __snapdata_collect_bvec( snapdata_collector_t* collector, sector_t ofs, struct bio_vec* bvec )
+
+
+int _snapdata_collect_bvec( snapdata_collector_t* collector, sector_t ofs, struct bio_vec* bvec )
 {
 	unsigned int bv_len;
 	unsigned int bv_offset;
@@ -357,19 +364,24 @@ int __snapdata_collect_bvec( snapdata_collector_t* collector, sector_t ofs, stru
 #else
 			{
 				size_t index = ofs + buff_ofs_sect - collector->start_index;
-				page_array_bit_set( collector->changes, index, true );
+				res = page_array_bit_set( collector->changes, index, true );
 			}
 #endif
 			if (res != SUCCESS){
 				log_errorln_sect( "sector# ", (ofs + buff_ofs_sect) );
-				log_errorln_d( "error code=", 0-res );
-				return res;
+				if (res == -EALREADY){
+					log_errorln( "already set" );
+				}else{
+					log_errorln_d( "error code=", res );
+					return res;
+				}
 			}
 		}
 	}
 	return SUCCESS;
 }
-//////////////////////////////////////////////////////////////////////////
+
+
 void snapdata_collect_Process( snapdata_collector_t* collector, struct bio *bio )
 {
 	sector_t ofs;
@@ -395,10 +407,10 @@ void snapdata_collect_Process( snapdata_collector_t* collector, struct bio *bio 
 		bio_for_each_segment( bvec, bio, iter ) {
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,14,0)
-			int err = __snapdata_collect_bvec( collector, ofs, bvec );
+			int err = _snapdata_collect_bvec( collector, ofs, bvec );
 			ofs += sector_from_size( bvec->bv_len );
 #else
-			int err = __snapdata_collect_bvec( collector, ofs, &bvec );
+			int err = _snapdata_collect_bvec( collector, ofs, &bvec );
 			ofs += sector_from_size( bvec.bv_len );
 #endif
 			if (err){
@@ -409,4 +421,4 @@ void snapdata_collect_Process( snapdata_collector_t* collector, struct bio *bio 
 		}
 	}
 }
-//////////////////////////////////////////////////////////////////////////
+

@@ -1,7 +1,6 @@
 #pragma once
+#include "veeamsnap_ioctl.h"
 
-#ifndef SNAPIMAGE_H
-#define SNAPIMAGE_H
 
 #define SNAPIMAGE_MAX_DEVICES 2048
 
@@ -15,4 +14,3 @@ int snapimage_collect_images( int count, struct image_info_s* p_user_image_info,
 
 void snapimage_print_state( void );
 
-#endif //SNAPIMAGE_H
