@@ -11,8 +11,18 @@ typedef struct blk_direct_bio_complete_s { // like struct submit_bio_ret
 
 int blk_direct_bioset_create( void )
 {
+	int ret;
 #if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
 	BlkDirectBioset = bioset_create( 64, sizeof( blk_direct_bio_complete_t ) );
+#elif LINUX_VERSION_CODE > KERNEL_VERSION( 4, 17, 19 )
+	BlkDirectBioset = kzalloc(sizeof(*BlkDirectBioset), GFP_KERNEL);
+	if (!BlkDirectBioset)
+		return -ENOMEM;
+	ret = bioset_init(BlkDirectBioset, 64, sizeof( blk_direct_bio_complete_t ), BIOSET_NEED_BVECS | BIOSET_NEED_RESCUER );
+	if (ret){
+		kfree(BlkDirectBioset);
+		return ret;
+	}
 #else
 	BlkDirectBioset = bioset_create( 64, sizeof( blk_direct_bio_complete_t ), BIOSET_NEED_BVECS | BIOSET_NEED_RESCUER );
 #endif
@@ -27,7 +37,7 @@ int blk_direct_bioset_create( void )
 void blk_direct_bioset_free( void )
 {
 	if (BlkDirectBioset != NULL){
-		bioset_free( BlkDirectBioset );
+		bioset_exit( BlkDirectBioset );
 		BlkDirectBioset = NULL;
 
 		log_traceln( "Specific bio set free." );
