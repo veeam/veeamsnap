@@ -27,9 +27,9 @@ int snapshotdata_stretch_Init( void );
 int snapshotdata_stretch_Done( void );
 
 void snapshotdata_stretch_free( snapshotdata_stretch_t* stretch_disk );
-snapshotdata_stretch_t* snapshotdata_stretch_create( uuid_t* id, dev_t dev_id );
+snapshotdata_stretch_t* snapshotdata_stretch_create( veeam_uuid_t* id, dev_t dev_id );
 
-snapshotdata_stretch_t* snapshotdata_stretch_find( uuid_t* id );
+snapshotdata_stretch_t* snapshotdata_stretch_find( veeam_uuid_t* id );
 
 //void snapshotdata_stretch_halffill( snapshotdata_stretch_t* stretch_disk, ssize_t fill_status );
 void snapshotdata_stretch_check_halffill( snapshotdata_stretch_t* stretch, snapshotdata_blkinfo_t* blkinfo );

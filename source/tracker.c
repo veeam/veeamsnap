@@ -125,7 +125,7 @@ int tracker_EnumCbtInfo( int max_count, struct cbt_info_s* p_cbt_info, int* p_co
 				if (pTracker->cbt_map){
 					p_cbt_info[count].cbt_map_size = pTracker->cbt_map->map_size;
 					p_cbt_info[count].snap_number = (unsigned char)pTracker->cbt_map->snap_number_previous;
-					uuid_copy( (uuid_t*)(p_cbt_info[count].generationId), &pTracker->cbt_map->generationId );
+					veeam_uuid_copy( (veeam_uuid_t*)(p_cbt_info[count].generationId), &pTracker->cbt_map->generationId );
 				}
 				else{
 					p_cbt_info[count].cbt_map_size = 0;

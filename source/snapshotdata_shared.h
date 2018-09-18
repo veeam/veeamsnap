@@ -14,14 +14,14 @@
 typedef struct snapshotdata_shared_s{
 	content_t content;
 	shared_resource_t sharing_header;
-	uuid_t unique_id;
+	veeam_uuid_t unique_id;
 	char type;
 }snapshotdata_shared_t;
 
 
-static inline void snapshotdata_shared_create( snapshotdata_shared_t* shared, uuid_t* id, char type, shared_resource_free_cb* free_cb )
+static inline void snapshotdata_shared_create( snapshotdata_shared_t* shared, veeam_uuid_t* id, char type, shared_resource_free_cb* free_cb )
 {
-	uuid_copy( &shared->unique_id, id );
+	veeam_uuid_copy( &shared->unique_id, id );
 
 	shared_resource_init( &shared->sharing_header, shared, free_cb );
 	shared->type = type;
@@ -42,14 +42,14 @@ static inline int snapshotdata_shared_own_cnt( snapshotdata_shared_t* shared )
 	return atomic_read( &shared->sharing_header.own_cnt );
 }
 
-snapshotdata_shared_t* snapshotdata_shared_find( uuid_t* id, container_t* Snapshot );
+snapshotdata_shared_t* snapshotdata_shared_find( veeam_uuid_t* id, container_t* Snapshot );
 
-static inline bool snapshotdata_shared_id_equal( uuid_t* id, snapshotdata_shared_t* shared )
+static inline bool snapshotdata_shared_id_equal( veeam_uuid_t* id, snapshotdata_shared_t* shared )
 {
-	return uuid_equal( id, &shared->unique_id );
+	return veeam_uuid_equal( id, &shared->unique_id );
 }
 
-snapshotdata_shared_t* snapshotdata_shared_find_by_id( uuid_t* id );
+snapshotdata_shared_t* snapshotdata_shared_find_by_id( veeam_uuid_t* id );
 
 #endif //SNAPSTORE
 

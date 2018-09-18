@@ -136,7 +136,7 @@ blk_deferred_t* blk_deferred_alloc(  sector_t sect_ofs, sector_t sect_len )
 		dio->sect.ofs = sect_ofs;
 		dio->sect.cnt = sect_len;
 
-		page_count = page_count_calculate( sect_ofs, sect_len );
+		page_count = page_count_calc_sectors( sect_ofs, sect_len );
 
 
 		dio->buff = page_array_alloc( page_count, GFP_NOIO );
@@ -162,12 +162,7 @@ blk_deferred_t* blk_deferred_alloc(  sector_t sect_ofs, sector_t sect_len )
 
 int blk_deferred_bioset_create( void )
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
-	BlkDeferredBioset = bioset_create( 64, sizeof( dio_bio_complete_t ) );
-#else
-	BlkDeferredBioset = bioset_create( 64, sizeof( dio_bio_complete_t ), BIOSET_NEED_BVECS | BIOSET_NEED_RESCUER );
-#endif
-
+	BlkDeferredBioset = blk_bioset_create(sizeof(dio_bio_complete_t));
 	if (BlkDeferredBioset == NULL){
 		log_errorln( "Failed to create bio set." );
 		return -ENOMEM;
@@ -243,7 +238,7 @@ void blk_deferred_bio_endio( struct bio *bio )
 		local_err = err;
 #else
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
+#ifndef BLK_STS_OK//#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
 		local_err = bio->bi_error;
 #else
 		if (bio->bi_status != BLK_STS_OK)
@@ -280,7 +275,7 @@ sector_t _blk_deferred_submit_pages(
 	int page_inx = arr_ofs >> (PAGE_SHIFT - SECTOR512_SHIFT);
 	sector_t process_sect = 0;
 
-	nr_iovecs = page_count_calculate( ofs_sector, size_sector );
+	nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
 
 	while (NULL == (bio = _blk_deferred_bio_alloc( nr_iovecs ))){
 		log_traceln_d( "dio_bio_alloc failed. nr_iovecs=", nr_iovecs );
@@ -289,14 +284,13 @@ sector_t _blk_deferred_submit_pages(
 		if (size_sector == 0){
 			return 0;
 		}
-		nr_iovecs = page_count_calculate( ofs_sector, size_sector );
+		nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
 	}
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
-	bio->bi_bdev = blk_dev;
+#ifdef bio_set_dev
+	bio_set_dev(bio, blk_dev);
 #else
-	bio->bi_disk = blk_dev->bd_disk;
-	bio->bi_partno = blk_dev->bd_partno;
+	bio->bi_bdev = blk_dev;
 #endif
 
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
@@ -641,8 +635,8 @@ int blk_deferred_request_store_file( struct block_device* blk_dev, blk_deferred_
 
 	if (res != SUCCESS){
 		//log_warnln_d( "> res=", res );
-		return res;
-	}
+	return res;
+}
 	res = blk_deferred_request_wait( dio_copy_req );
 	//log_warnln( ">" );
 	return res;

@@ -52,6 +52,24 @@ static struct file_operations ctrl_fops = {
 	.unlocked_ioctl = ctrl_unlocked_ioctl
 };
 
+static inline void show_distrib(const char* distrib_name)
+{
+    pr_warn("Compile for distributive: %s", distrib_name);
+}
+
+static inline void show_distrib_version(const char* distrib_name)
+{
+#if defined(DISTRIB_VERSION_1) && defined(DISTRIB_VERSION_2)
+    pr_warn("Compile for distributive: %s %d.%d", distrib_name, DISTRIB_VERSION_1, DISTRIB_VERSION_2);
+#else
+#if defined(DISTRIB_VERSION_1)
+    pr_warn("Compile for distributive: %s %d", distrib_name, DISTRIB_VERSION_1);
+#else
+    show_distrib(distrib_name);
+#endif
+#endif
+}
+
 int __init veeamsnap_init(void)
 {
 	int conteiner_cnt = 0;
@@ -81,6 +99,33 @@ int __init veeamsnap_init(void)
 	log_traceln_d( "start. vmem_cnt=", atomic_read(&g_vmem_cnt) );
 	dbg_mem_init( );
 #endif
+
+
+#if defined(DISTRIB_NAME_RHEL) || defined(DISTRIB_NAME_CENTOS) 
+    show_distrib("RHEL or CentOS");
+#endif
+#if defined(DISTRIB_NAME_FEDORA)
+    show_distrib_version("Fedora");
+#endif
+#if defined(DISTRIB_NAME_SLES) || defined(DISTRIB_NAME_SLES_SAP)
+    show_distrib_version("SLES");
+#endif
+#if defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_OPENSUSE_LEAP)
+    show_distrib_version("OpenSUSE");
+#endif
+#if defined(DISTRIB_NAME_OPENSUSE_TUMBLEWEED)
+    show_distrib_version("OpenSUSE Tumbleweed");
+#endif
+#if defined(DISTRIB_NAME_DEBIAN)
+    show_distrib_version("Debian");
+#endif
+#if defined(DISTRIB_NAME_UBUNTU)
+    show_distrib_version("Ubuntu");
+#endif
+
+
+
+	//btreefs_enum( );
 
 	page_arrays_init( );
 

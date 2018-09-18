@@ -85,7 +85,7 @@ void snapstore_done( )
 	};
 }
 
-int snapstore_create( uuid_t* id, dev_t snapstore_dev_id, dev_t* dev_id_set, size_t dev_id_set_length )
+int snapstore_create( veeam_uuid_t* id, dev_t snapstore_dev_id, dev_t* dev_id_set, size_t dev_id_set_length )
 {
 	int res = SUCCESS;
 	size_t dev_id_inx;
@@ -98,7 +98,7 @@ int snapstore_create( uuid_t* id, dev_t snapstore_dev_id, dev_t* dev_id_set, siz
 	if (snapstore == NULL)
 		return -ENOMEM;
 
-	uuid_copy( &snapstore->id, id );
+	veeam_uuid_copy( &snapstore->id, id );
 
 	log_traceln_uuid( "Create snapstore with id=", (&snapstore->id) );
 
@@ -140,7 +140,7 @@ int snapstore_create( uuid_t* id, dev_t snapstore_dev_id, dev_t* dev_id_set, siz
 }
 
 
-int snapstore_cleanup( uuid_t* id, stream_size_t* filled_bytes )
+int snapstore_cleanup( veeam_uuid_t* id, stream_size_t* filled_bytes )
 {
 	int res;
 	sector_t filled;
@@ -156,7 +156,7 @@ int snapstore_cleanup( uuid_t* id, stream_size_t* filled_bytes )
 	return snapstore_device_cleanup( id );
 }
 
-snapstore_t* _snapstore_find( uuid_t* id )
+snapstore_t* _snapstore_find( veeam_uuid_t* id )
 {
 	snapstore_t* result = NULL;
 	content_t* content;
@@ -164,7 +164,7 @@ snapstore_t* _snapstore_find( uuid_t* id )
 	CONTAINER_FOREACH_BEGIN( Snapstore, content )
 	{
 		snapstore_t* snapstore = (snapstore_t*)content;
-		if (uuid_equal( &snapstore->id, id )){
+		if (veeam_uuid_equal( &snapstore->id, id )){
 			result = snapstore;
 			break;
 		}
@@ -174,7 +174,7 @@ snapstore_t* _snapstore_find( uuid_t* id )
 	return result;
 }
 
-int snapstore_stretch_initiate( uuid_t* unique_id, ctrl_pipe_t* ctrl_pipe, sector_t empty_limit )
+int snapstore_stretch_initiate( veeam_uuid_t* unique_id, ctrl_pipe_t* ctrl_pipe, sector_t empty_limit )
 {
 	snapstore_t* snapstore = _snapstore_find( unique_id );
 	if (NULL == snapstore){
@@ -188,7 +188,7 @@ int snapstore_stretch_initiate( uuid_t* unique_id, ctrl_pipe_t* ctrl_pipe, secto
 	return SUCCESS;
 }
 
-int snapstore_add_memory( uuid_t* id, unsigned long long sz )
+int snapstore_add_memory( veeam_uuid_t* id, unsigned long long sz )
 {
 	int res = SUCCESS;
 	snapstore_t* snapstore = NULL;
@@ -216,13 +216,13 @@ int snapstore_add_memory( uuid_t* id, unsigned long long sz )
 }
 
 
-int snapstore_add_file( uuid_t* id, struct ioctl_range_s* ranges, size_t ranges_cnt )
+int snapstore_add_file( veeam_uuid_t* id, page_array_t* ranges, size_t ranges_cnt )
 {
 	int res = SUCCESS;
 	snapstore_t* snapstore = NULL;
 	sector_t current_blk_size = 0;
 
-	log_traceln_sz( "ranges count=", ranges_cnt );
+	log_traceln_sz( "Snapstore add ranges. Count=", ranges_cnt );
 
 	if ((ranges_cnt == 0) || (ranges == NULL))
 		return -EINVAL;
@@ -246,9 +246,12 @@ int snapstore_add_file( uuid_t* id, struct ioctl_range_s* ranges, size_t ranges_
 		for (inx = 0; inx < ranges_cnt; ++inx){
 			size_t blocks_count = 0;
 			sector_t range_offset = 0;
+
 			range_t range;
-			range.ofs = sector_from_streamsize( ranges[inx].left );
-			range.cnt = sector_from_streamsize( ranges[inx].right ) - range.ofs;
+			struct ioctl_range_s* ioctl_range = (struct ioctl_range_s*)page_get_element( ranges, inx, sizeof( struct ioctl_range_s ) );
+
+			range.ofs = sector_from_streamsize( ioctl_range->left );
+			range.cnt = sector_from_streamsize( ioctl_range->right ) - range.ofs;
 
 			//log_errorln_range( "range=", range );
 
@@ -315,7 +318,6 @@ int snapstore_add_file( uuid_t* id, struct ioctl_range_s* ranges, size_t ranges_
 	return res;
 }
 
-
 void snapstore_order_border( range_t* in, range_t* out )
 {
 	range_t unorder;
@@ -358,7 +360,7 @@ blk_descr_unify_t* snapstore_get_empty_block( snapstore_t* snapstore )
 	return result;
 }
 
-int snapstore_check_halffill( uuid_t* unique_id, sector_t* fill_status )
+int snapstore_check_halffill( veeam_uuid_t* unique_id, sector_t* fill_status )
 {
 	snapstore_t* snapstore = _snapstore_find( unique_id );
 	if (NULL == snapstore){

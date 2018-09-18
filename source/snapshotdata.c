@@ -35,7 +35,7 @@ int snapshotdata_Destroy( snapshotdata_t* snapshotdata )
 
 }
 
-int _snapshotdata_Delete( uuid_t* id )
+int _snapshotdata_Delete( veeam_uuid_t* id )
 {
 	int result = -ENODATA;
 
@@ -65,7 +65,7 @@ int _snapshotdata_Delete( uuid_t* id )
 	return result;
 }
 
-int snapshotdata_shared_cleanup( uuid_t* id )
+int snapshotdata_shared_cleanup( veeam_uuid_t* id )
 {
 	int res = _snapshotdata_Delete( id );
 	if (res == -ENODATA){
@@ -771,7 +771,7 @@ int snapshotdata_write_to_image( snapshotdata_t* snapshotdata, struct bio* bio, 
 
 	snapshotdata_order_border( ofs_sect, len_sect, &ord_ofs_sect, &ord_len_sect );
 
-	arr = page_array_alloc( page_count_calculate( ord_ofs_sect, ord_len_sect ), GFP_NOIO );
+	arr = page_array_alloc( page_count_calc_sectors( ord_ofs_sect, ord_len_sect ), GFP_NOIO );
 	if (arr == NULL){
 		log_errorln_sect( "Cannot allocate some pages for sectors. Sectors count=", ord_len_sect );
 		return -ENOMEM;

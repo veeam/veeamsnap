@@ -49,12 +49,14 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 
 obj-m := $(KERNEL_MODULE_NAME).o
 $(KERNEL_MODULE_NAME)-y += $(KERNEL_MODULE_OBJECT_FILE_LIST)
-# ccflags-y := -g -ggdb -O1 -DDEBUG $(COMPATIBILITY_FLAGS) -Wno-multichar
 ccflags-y := -O2 -Wno-multichar $(COMPATIBILITY_FLAGS)
-
+SHELL:=/bin/bash 
+ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; val="DISTRIB_NAME.$$ID"; echo "-D"$${val//[.-]/_} | awk '{print toupper($$0)}' ; fi )
+ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; awk '{ n=split($$0,v,"."); for (i=0; ++i<=n;) print "-DDISTRIB_VERSION_"i"="v[i] }' <<< $$VERSION_ID ; fi )
 
 all:
 	@echo Making all...
+	@echo ccflags-y= $(ccflags-y)
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
 	@echo Completed.
 

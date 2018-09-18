@@ -97,5 +97,8 @@ int get_zerosnapdata( void );
 
 //#define VEEAM_IOCTL_LOGGING
 
+#if defined(DISTRIB_NAME_OPENSUSE_LEAP) || defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_SLES) || defined(DISTRIB_NAME_SLES_SAP)
+#define OS_RELEASE_SUSE
+#endif
 
 #endif /* STDAFX_H_ */

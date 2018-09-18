@@ -12,7 +12,7 @@ int snapshotdata_common_Init( void )
 
 void snapshotdata_common_free( snapshotdata_common_t* common )
 {
-	uuid_t* id = &(common->shared.unique_id);
+	veeam_uuid_t* id = &(common->shared.unique_id);
 	log_traceln_uuid( "id=", id );
 	snapshotdata_file_destroy( &common->file );
 }
@@ -33,7 +33,7 @@ int snapshotdata_common_Done( void )
 	content = container_get_first( &SnapshotCommonDisks );
 	while (NULL != content){
 		snapshotdata_common_t* common = (snapshotdata_common_t*)content;
-		uuid_t* id = &(common->shared.unique_id);
+		veeam_uuid_t* id = &(common->shared.unique_id);
 
 		log_errorln_uuid( "Cleanup. id=", id );
 		log_errorln_dev_t( "device=", common->file.blk_dev_id );
@@ -50,7 +50,7 @@ int snapshotdata_common_Done( void )
 	return res;
 }
 
-snapshotdata_common_t* snapshotdata_common_create( uuid_t* id, dev_t dev_id )
+snapshotdata_common_t* snapshotdata_common_create( veeam_uuid_t* id, dev_t dev_id )
 {
 	int res = SUCCESS;
 	snapshotdata_common_t* common = NULL;
@@ -77,7 +77,7 @@ snapshotdata_common_t* snapshotdata_common_create( uuid_t* id, dev_t dev_id )
 	return common;
 }
 
-snapshotdata_common_t* snapshotdata_common_find( uuid_t* id )
+snapshotdata_common_t* snapshotdata_common_find( veeam_uuid_t* id )
 {
 	return (snapshotdata_common_t*)snapshotdata_shared_find( id, &SnapshotCommonDisks );
 }

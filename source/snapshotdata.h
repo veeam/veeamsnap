@@ -56,7 +56,7 @@ int snapshotdata_Init( void );
 int snapshotdata_Done( void );
 
 int snapshotdata_Destroy( snapshotdata_t* snapshotdata );
-int snapshotdata_shared_cleanup( uuid_t* id );
+int snapshotdata_shared_cleanup( veeam_uuid_t* id );
 int snapshotdata_FindByDevId( dev_t dev_id, snapshotdata_t** psnapshotdata );
 
 int snapshotdata_Errno( dev_t dev_id, int* p_err_code );

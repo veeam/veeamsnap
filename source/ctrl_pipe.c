@@ -21,8 +21,8 @@ typedef struct cmd_to_user_s
 	size_t request_size;//in bytes
 }cmd_to_user_t;
 
-ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, char *buffer, size_t length );
-ssize_t ctrl_pipe_command_next_portion( ctrl_pipe_t* pipe, char *buffer, size_t length );
+ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, const char __user *buffer, size_t length );
+ssize_t ctrl_pipe_command_next_portion( ctrl_pipe_t* pipe, const char __user *buffer, size_t length );
 
 
 void ctrl_pipe_request_acknowledge( ctrl_pipe_t* pipe, unsigned int result );
@@ -50,7 +50,7 @@ void ctrl_pipe_release_cb( void* resource )
 {
 	ctrl_pipe_t* pipe = (ctrl_pipe_t*)resource;
 
-	log_traceln( "." );
+	//log_traceln( "." );
 
 	while (!container_empty( &pipe->cmd_to_user )){
 		cmd_to_user_t* request = (cmd_to_user_t*)container_get_first( &pipe->cmd_to_user );
@@ -69,7 +69,7 @@ void ctrl_pipe_release_cb( void* resource )
 ctrl_pipe_t* ctrl_pipe_new( void )
 {
 	ctrl_pipe_t* pipe = (ctrl_pipe_t*)container_new( &CtrlPipes );
-	log_traceln( "." );
+	//log_traceln( "." );
 
 	container_init( &pipe->cmd_to_user, sizeof( cmd_to_user_t ) );
 
@@ -127,7 +127,7 @@ ssize_t ctrl_pipe_read( ctrl_pipe_t* pipe, char __user *buffer, size_t length )
 	return processed;
 }
 
-ssize_t ctrl_pipe_write( ctrl_pipe_t* pipe, char *buffer, size_t length )
+ssize_t ctrl_pipe_write( ctrl_pipe_t* pipe, const char __user *buffer, size_t length )
 {
 	ssize_t processed = 0;
 	//log_traceln_sz( "length=", length );
@@ -139,7 +139,11 @@ ssize_t ctrl_pipe_write( ctrl_pipe_t* pipe, char *buffer, size_t length )
 			log_errorln_sz( "Invalid command length=", length);
 			break;
 		}
-		command = *(unsigned int*)buffer;
+		if (0 != copy_from_user( &command, buffer + processed, sizeof( unsigned int ) )){
+			log_errorln( "Failed to write to pipe. Invalid user buffer" );
+			processed = -EINVAL;
+			break;
+		}
 		processed += sizeof( unsigned int );
 		//+4
 		switch (command){
@@ -186,18 +190,28 @@ unsigned int ctrl_pipe_poll( ctrl_pipe_t* pipe )
 }
 
 
-ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, char *buffer, size_t length )
+ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, const char __user *buffer, size_t length )
 {
 	int result = SUCCESS;
 	ssize_t processed = 0;
 
-	//log_traceln( "." );
+	char* kernel_buffer = dbg_kmalloc( length, GFP_KERNEL );
+	if (kernel_buffer == NULL){
+		log_errorln_sz( "Failed to process next portion to pipe. Cannot allocate buffer. length=", length );
+		return -ENOMEM;
+	}
+
+	if (0 != copy_from_user( kernel_buffer, buffer, length )){
+		dbg_kfree( kernel_buffer );
+		log_errorln( "Failed to write to pipe. Invalid user buffer" );
+		return -EINVAL;
+	}
 
 	do{
 		stream_size_t stretch_empty_limit;
 		unsigned int dev_id_list_length;
 		unsigned int dev_id_list_inx;
-		uuid_t* unique_id;
+		veeam_uuid_t* unique_id;
 		struct ioctl_dev_id_s* snapshotdata_dev_id;
 		struct ioctl_dev_id_s* dev_id_list;
 
@@ -206,7 +220,7 @@ ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, char *buffer, size_t leng
 			log_errorln_sz( "Failed to get snapshotdata id. length=", length );
 			break;
 		}
-		unique_id = (uuid_t*)(buffer + processed);
+		unique_id = (veeam_uuid_t*)(kernel_buffer + processed);
 		processed += 16;
 		log_traceln_uuid( "unique_id=", unique_id );
 
@@ -215,7 +229,7 @@ ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, char *buffer, size_t leng
 			log_errorln_sz( "Failed to get snapshotdata device id. length=", length );
 			break;
 		}
-		stretch_empty_limit = *(stream_size_t*)(buffer + processed);
+		stretch_empty_limit = *(stream_size_t*)(kernel_buffer + processed);
 		processed += sizeof( stream_size_t );
 		log_traceln_lld( "stretch_empty_limit=", stretch_empty_limit );
 
@@ -224,7 +238,7 @@ ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, char *buffer, size_t leng
 			log_errorln_sz( "Failed to get snapshotdata device id. length=", length );
 			break;
 		}
-		snapshotdata_dev_id = (struct ioctl_dev_id_s*)(buffer + processed);
+		snapshotdata_dev_id = (struct ioctl_dev_id_s*)(kernel_buffer + processed);
 		processed += sizeof( struct ioctl_dev_id_s );
 		log_traceln_dev_t( "snapshotdata_dev_id=", MKDEV( snapshotdata_dev_id->major, snapshotdata_dev_id->minor ) );
 
@@ -233,7 +247,7 @@ ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, char *buffer, size_t leng
 			log_errorln_sz( "Failed to get device id list length. length=", length );
 			break;
 		}
-		dev_id_list_length = *(unsigned int*)(buffer + processed);
+		dev_id_list_length = *(unsigned int*)(kernel_buffer + processed);
 		processed += sizeof( unsigned int );
 		log_traceln_d( "dev_id_list_length=", dev_id_list_length );
 
@@ -242,7 +256,7 @@ ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, char *buffer, size_t leng
 			log_errorln_sz( "Failed to get all device from device id list length. length=", length );
 			break;
 		}
-		dev_id_list = (struct ioctl_dev_id_s*)(buffer + processed);
+		dev_id_list = (struct ioctl_dev_id_s*)(kernel_buffer + processed);
 		processed += (dev_id_list_length*sizeof( struct ioctl_dev_id_s ));
 
 		for (dev_id_list_inx = 0; dev_id_list_inx < dev_id_list_length; ++dev_id_list_inx){
@@ -309,6 +323,7 @@ ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, char *buffer, size_t leng
 #endif //SNAPSTORE
 
 	} while (false);
+	dbg_kfree( kernel_buffer );
 	ctrl_pipe_request_acknowledge( pipe, result );
 	
 	if (result == SUCCESS)
@@ -316,25 +331,29 @@ ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, char *buffer, size_t leng
 	return result;
 }
 
-ssize_t ctrl_pipe_command_next_portion( ctrl_pipe_t* pipe, char *buffer, size_t length )
+ssize_t ctrl_pipe_command_next_portion( ctrl_pipe_t* pipe, const char __user *buffer, size_t length )
 {
 	int result = SUCCESS;
 	ssize_t processed = 0;
-	//log_traceln( "." );
-	do{
-		uuid_t* unique_id;
-		unsigned int ranges_length;
+	page_array_t* ranges = NULL;
 
-		struct ioctl_range_s* ranges;
+	do{
+		veeam_uuid_t unique_id;
+		unsigned int ranges_length;
+		size_t ranges_buffer_size;
 
 		//get snapshotdata id
 		if ((length - processed) < 16){
 			log_errorln_sz( "Failed to get snapshotdata id. length=", length );
 			break;
 		}
-		unique_id = (uuid_t*)(buffer + processed);
+		if (0 != copy_from_user( &unique_id, buffer + processed, sizeof( veeam_uuid_t ) )){
+			log_errorln( "Failed to write to pipe. Invalid user buffer" );
+			processed = -EINVAL;
+			break;
+		}
 		processed += 16;
-		log_traceln_uuid( "snapshotdata unique_id=", unique_id );
+		log_traceln_uuid( "snapshotdata unique_id=", (&unique_id) );
 		//+20
 
 		//get ranges length
@@ -342,20 +361,37 @@ ssize_t ctrl_pipe_command_next_portion( ctrl_pipe_t* pipe, char *buffer, size_t 
 			log_errorln_sz( "Failed to get device id list length. length=", length );
 			break;
 		}
-		ranges_length = *(unsigned int*)(buffer + processed);
-		processed += sizeof( unsigned int );
-		//+24
-		// ranges
-		if ((length - processed) < (ranges_length*sizeof( struct ioctl_range_s ))){
-			log_errorln_sz( "Failed to get all device from device id list length. length=", length );
+		if (0 != copy_from_user( &ranges_length, buffer + processed, sizeof( unsigned int ) )){
+			log_errorln( "Failed to write to pipe. Invalid user buffer" );
+			processed = -EINVAL;
 			break;
 		}
-		ranges = (struct ioctl_range_s*)(buffer + processed);
-		processed += (ranges_length*sizeof( struct ioctl_range_s ));
+		processed += sizeof( unsigned int );
+		//+24
+
+		ranges_buffer_size = ranges_length*sizeof( struct ioctl_range_s );
+
+		// ranges
+		if ((length - processed) < (ranges_buffer_size)){
+			log_errorln_sz( "Invalid ctrl pipe next portion command. Failed to get all ranges. length=", length );
+			break;
+		}
+		ranges = page_array_alloc( page_count_calc( ranges_buffer_size ), GFP_KERNEL );
+		if (ranges == NULL){
+			log_errorln( "Failed to process next portion command. Failed to allocate page array buffer" );
+			processed = -ENOMEM;
+			break;
+		}
+		if (ranges_buffer_size != page_array_user2page( buffer + processed, 0, ranges, ranges_buffer_size )){
+			log_errorln( "Failed to process next portion command. Invalid user buffer from parameters." );
+			processed = -EINVAL;
+			break;
+		}
+		processed += ranges_buffer_size;
 		//+40
 #ifdef SNAPSTORE
 		{
-			result = snapstore_add_file( unique_id, ranges, ranges_length );
+			result = snapstore_add_file( &unique_id, ranges, ranges_length );
 
 			if (result != SUCCESS){
 				log_errorln( "Cannot add file to snapstore" );
@@ -366,7 +402,7 @@ ssize_t ctrl_pipe_command_next_portion( ctrl_pipe_t* pipe, char *buffer, size_t 
 #else //SNAPSTORE
 		{
 			snapshotdata_stretch_t* stretch = NULL;
-			stretch = snapshotdata_stretch_find( unique_id );
+			stretch = snapshotdata_stretch_find( &unique_id );
 			if (stretch == NULL){
 				log_errorln( "Cannot find stretch snapshot data" );
 				result = -ENODEV;
@@ -392,6 +428,8 @@ ssize_t ctrl_pipe_command_next_portion( ctrl_pipe_t* pipe, char *buffer, size_t 
 		}
 #endif //SNAPSTORE
 	} while (false);
+	if (ranges)
+		page_array_free( ranges );
 
 	if (result == SUCCESS)
 		//log_traceln_sz( "processed=", processed );

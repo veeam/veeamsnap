@@ -18,8 +18,8 @@ int snapshotdata_memory_Init( void );
 int snapshotdata_memory_Done( void );
 
 //void snapshotdata_memory_free( snapshotdata_memory_t* mem );
-snapshotdata_memory_t* snapshotdata_memory_create( uuid_t* id, size_t buffer_size );
+snapshotdata_memory_t* snapshotdata_memory_create( veeam_uuid_t* id, size_t buffer_size );
 
-snapshotdata_memory_t* snapshotdata_memory_find( uuid_t* id );
+snapshotdata_memory_t* snapshotdata_memory_find( veeam_uuid_t* id );
 
 #endif //SNAPSTORE

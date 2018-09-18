@@ -31,7 +31,7 @@ int snapshotdata_memory_Done( void )
 	content = container_get_first( &SnapshotMemories );
 	while (NULL != content){
 		snapshotdata_memory_t* mem = (snapshotdata_memory_t*)content;
-		uuid_t* id = &(mem->shared.unique_id);
+		veeam_uuid_t* id = &(mem->shared.unique_id);
 
 		log_errorln_uuid( "Cleanup. id=", id );
 		log_errorln_d( "owners count=", snapshotdata_shared_own_cnt( &mem->shared ) );
@@ -47,7 +47,7 @@ int snapshotdata_memory_Done( void )
 	return res;
 }
 
-snapshotdata_memory_t* snapshotdata_memory_create( uuid_t* id, size_t buffer_size )
+snapshotdata_memory_t* snapshotdata_memory_create( veeam_uuid_t* id, size_t buffer_size )
 {
 	int res = SUCCESS;
 	snapshotdata_memory_t* mem = NULL;
@@ -74,7 +74,7 @@ snapshotdata_memory_t* snapshotdata_memory_create( uuid_t* id, size_t buffer_siz
 	return mem;
 }
 
-snapshotdata_memory_t* snapshotdata_memory_find( uuid_t* id )
+snapshotdata_memory_t* snapshotdata_memory_find( veeam_uuid_t* id )
 {
 	return (snapshotdata_memory_t*)snapshotdata_shared_find( id, &SnapshotMemories );
 }

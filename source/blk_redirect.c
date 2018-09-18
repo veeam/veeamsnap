@@ -8,12 +8,7 @@ struct bio_set* BlkRedirectBioset = NULL;
 
 int blk_redirect_bioset_create( void )
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
-	BlkRedirectBioset = bioset_create( 64, 0 );
-#else
-	BlkRedirectBioset = bioset_create( 64, 0, BIOSET_NEED_BVECS | BIOSET_NEED_RESCUER );
-#endif
-
+	BlkRedirectBioset = blk_bioset_create(0);
 	if (BlkRedirectBioset == NULL){
 		log_errorln( "Failed to create bio set." );
 		return -ENOMEM;
@@ -46,7 +41,7 @@ void blk_redirect_bio_endio( struct bio *bb )
 	if (rq_endio != NULL){
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)
 		int err = SUCCESS;
-#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
+#ifndef BLK_STS_OK//#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
 		err = bb->bi_error;
 #else
 		if (bb->bi_status != BLK_STS_OK)
@@ -209,12 +204,10 @@ __reprocess_bv:
 				log_errorln( "cannot allocate new bio NOIO. Schedule." );
 				schedule( );
 			}
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
-			new_bio->bi_bdev = blk_dev;
+#ifdef bio_set_dev
+			bio_set_dev(new_bio, blk_dev);
 #else
-			new_bio->bi_disk = blk_dev->bd_disk;
-			new_bio->bi_partno = blk_dev->bd_partno;
+			new_bio->bi_bdev = blk_dev;
 #endif
 
 			if (direction == READ){
@@ -306,7 +299,7 @@ int _blk_dev_redirect_part_read_sync( blk_redirect_bio_endio_t* rq_endio, int di
 	rq_ofs_ordered = rq_ofs & ~logical_block_size_mask;
 	//rq_count_ordered = rq_count & ~logical_block_size_mask;
 
-	page_count = page_count_calculate( target_pos, rq_count );
+	page_count = page_count_calc_sectors( target_pos, rq_count );
 	log_errorln_sz( "page_count= ", page_count );
 
 	arr = page_array_alloc( page_count, GFP_NOIO );

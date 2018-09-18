@@ -22,11 +22,13 @@ void page_array_free( page_array_t* arr );
 size_t page_array_pages2mem( void* dst_buffer, size_t arr_ofs, page_array_t* arr, size_t length );
 size_t page_array_mem2pages( void* src_buffer, size_t arr_ofs, page_array_t* arr, size_t length );
 
-size_t page_array_page2user( void* dst_user_buffer, size_t arr_ofs, page_array_t* arr, size_t length );
-size_t page_array_user2page( void* src_user_buffer, size_t arr_ofs, page_array_t* arr, size_t length );
+size_t page_array_page2user( char __user* dst_user_buffer, size_t arr_ofs, page_array_t* arr, size_t length );
+size_t page_array_user2page( const char __user* src_user_buffer, size_t arr_ofs, page_array_t* arr, size_t length );
 
-size_t page_count_calculate( sector_t range_start_sect, sector_t range_cnt_sect );
+size_t page_count_calc( size_t buffer_size );
+size_t page_count_calc_sectors( sector_t range_start_sect, sector_t range_cnt_sect );
 
+void* page_get_element( page_array_t* arr, size_t index, size_t sizeof_element );
 char* page_get_sector( page_array_t* arr, sector_t arr_ofs );
 
 //

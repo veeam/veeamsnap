@@ -166,7 +166,7 @@ void _snapimage_release( struct gendisk *disk, fmode_t mode )
 				log_traceln_dev_t( "dev id=", MKDEV( disk->major, disk->first_minor ) );
 
 				image->open_bdev = NULL;
-			}
+		}
 		}
 		mutex_unlock( &image->open_locker );
 	}
@@ -252,7 +252,7 @@ static struct block_device_operations g_snapimage_ops = {
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = _snapimage_compat_ioctl_2628,
 #endif
-	.direct_access = NULL,
+	//.direct_access = NULL,
 	//.check_events = NULL,
 	.media_changed = NULL,
 	//.unlock_native_capacity = NULL,
@@ -272,9 +272,6 @@ static struct block_device_operations g_snapimage_ops = {
 	.compat_ioctl = _snapimage_compat_ioctl,
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,12,0) 
-	.direct_access = NULL,
-#endif
 	//.check_events = NULL,
 	.media_changed = NULL,
 	//.unlock_native_capacity = NULL,
@@ -290,7 +287,7 @@ static struct block_device_operations g_snapimage_ops = {
 #ifdef SNAPSTORE
 
 int _snapimage_request_read( defer_io_t* p_defer_io, blk_redirect_bio_endio_t* rq_endio )
-	{
+{
 	int res = -ENODATA;
 
 	res = snapstore_device_read( p_defer_io->snapstore_device, rq_endio );
@@ -529,8 +526,8 @@ void _snapimage_processing( snapimage_t * image )
 	if (bio_data_dir( rq_endio->bio ) == READ){
 		//log_warnln( "read" );
 		{
-			image->last_read_sector = bio_bi_sector( rq_endio->bio );
-			image->last_read_size =  sector_from_uint( bio_bi_size( rq_endio->bio ) );
+		image->last_read_sector = bio_bi_sector( rq_endio->bio );
+		image->last_read_size =  sector_from_uint( bio_bi_size( rq_endio->bio ) );
 		}
 
 		res = _snapimage_request_read( image->defer_io, rq_endio );
@@ -576,7 +573,7 @@ int snapimage_processor_thread( void *data )
 {
 
 	snapimage_t *image = data;
-
+	
 	log_traceln( "started." );
 
 	//priority
@@ -650,7 +647,11 @@ blk_qc_t _snapimage_make_request( struct request_queue *q, struct bio *bio )
 #if LINUX_VERSION_CODE >= KERNEL_VERSION( 4, 4, 0 )
 	blk_qc_t result = SUCCESS;
 #else
+
+#ifdef HAVE_MAKE_REQUEST_INT
 	int result = SUCCESS;
+#endif
+
 #endif
 	snapimage_t* image = q->queuedata;
 
@@ -915,18 +916,18 @@ int snapimage_create( dev_t original_dev )
 
 void _snapimage_stop( snapimage_t* image )
 {
-	if (queue_sl_active( &image->rq_proc_queue, false )){
-		unsigned long flags;
-		struct request_queue* q = image->queue;
+		if (queue_sl_active( &image->rq_proc_queue, false )){
+			unsigned long flags;
+			struct request_queue* q = image->queue;
 
 		if (blk_queue_stopped( q ))
 			return;
 
-		blk_sync_queue( q );
+				blk_sync_queue( q );
 
-		spin_lock_irqsave( q->queue_lock, flags );
-		blk_stop_queue( q );
-		spin_unlock_irqrestore( q->queue_lock, flags );
+				spin_lock_irqsave( q->queue_lock, flags );
+				blk_stop_queue( q );
+				spin_unlock_irqrestore( q->queue_lock, flags );
 
 	}
 }
@@ -958,19 +959,19 @@ int _snapimage_destroy( snapimage_t* image )
 		};
 	}
 	do{	
-		if (image->queue) {
+	if (image->queue) {
 			log_traceln( "cleanup queue." );
-			blk_cleanup_queue( image->queue );
-			image->queue = NULL;
-		}
+		blk_cleanup_queue( image->queue );
+		image->queue = NULL;
+	}
 
 		if (disk != NULL){
 			log_traceln( "release disk structure." );
-			put_disk( disk );
-		}
-		queue_sl_done( &image->rq_proc_queue );
+		put_disk( disk );
+	}
+	queue_sl_done( &image->rq_proc_queue );
 
-		bitmap_sync_clear( &g_snapimage_minors, MINOR( image->image_dev ) );
+	bitmap_sync_clear( &g_snapimage_minors, MINOR( image->image_dev ) );
 	} while (false);
 	return SUCCESS;
 }
@@ -1093,7 +1094,7 @@ int snapimage_init( void )
 		else{
 			log_errorln("Cannot create container Snapimages.");
 		}
-	}
+		}
 	else{
 		log_errorln_d( "Failed to register snapimage block device. major=", g_snapimage_major );
 	}
@@ -1183,8 +1184,8 @@ int snapimage_collect_images( int count, struct image_info_s* p_user_image_info,
 			int left_data_length = copy_to_user( p_user_image_info, p_kernel_image_info, buff_size );
 			if (left_data_length != 0){
 				log_errorln_d( "Cannot copy data to user buffer ", (int)left_data_length );
-				res = - ENODATA;
-			}
+			res = - ENODATA;
+		}
 		}
 
 		dbg_kfree( p_kernel_image_info );

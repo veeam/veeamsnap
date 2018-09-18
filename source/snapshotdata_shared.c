@@ -8,7 +8,7 @@
 #include "snapshotdata_memory.h"
 
 
-snapshotdata_shared_t* snapshotdata_shared_find( uuid_t* id, container_t* Snapshot )
+snapshotdata_shared_t* snapshotdata_shared_find( veeam_uuid_t* id, container_t* Snapshot )
 {
 	snapshotdata_shared_t* result = NULL;
 	content_t* content = NULL;
@@ -27,7 +27,7 @@ snapshotdata_shared_t* snapshotdata_shared_find( uuid_t* id, container_t* Snapsh
 	return result;
 }
 
-snapshotdata_shared_t* snapshotdata_shared_find_by_id( uuid_t* id )
+snapshotdata_shared_t* snapshotdata_shared_find_by_id( veeam_uuid_t* id )
 {
 	{
 		snapshotdata_stretch_t* stretch = snapshotdata_stretch_find( id );

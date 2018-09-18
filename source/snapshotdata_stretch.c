@@ -18,7 +18,7 @@ int snapshotdata_stretch_Done( void )
 	CONTAINER_FOREACH_BEGIN( SnapshotStretchDisks, content )
 	{
 		snapshotdata_stretch_t* stretch = (snapshotdata_stretch_t*)content;
-		uuid_t* id = &(stretch->shared.unique_id);
+		veeam_uuid_t* id = &(stretch->shared.unique_id);
 
 		log_errorln_uuid( "Still in use. id=", id );
 		log_errorln_dev_t( "device=", stretch->file.blk_dev_id );
@@ -36,7 +36,7 @@ int snapshotdata_stretch_Done( void )
 
 void snapshotdata_stretch_free( snapshotdata_stretch_t* stretch )
 {
-	uuid_t* id = &(stretch->shared.unique_id);
+	veeam_uuid_t* id = &(stretch->shared.unique_id);
 	log_traceln_uuid( "id=", id );
 
 	snapshotdata_stretch_terminate( stretch );
@@ -59,7 +59,7 @@ void snapshotdata_stretch_free_cb( void* this_resource )
 }
 
 
-snapshotdata_stretch_t* snapshotdata_stretch_create( uuid_t* id, dev_t dev_id )
+snapshotdata_stretch_t* snapshotdata_stretch_create( veeam_uuid_t* id, dev_t dev_id )
 {
 	int res = SUCCESS;
 	snapshotdata_stretch_t* stretch = NULL;
@@ -95,7 +95,7 @@ snapshotdata_stretch_t* snapshotdata_stretch_create( uuid_t* id, dev_t dev_id )
 	return stretch;
 }
 
-snapshotdata_stretch_t* snapshotdata_stretch_find( uuid_t* id )
+snapshotdata_stretch_t* snapshotdata_stretch_find( veeam_uuid_t* id )
 {
 	return (snapshotdata_stretch_t*)snapshotdata_shared_find( id, &SnapshotStretchDisks );
 }

@@ -29,7 +29,7 @@ ctrl_pipe_t* ctrl_pipe_new( void );
 
 
 ssize_t ctrl_pipe_read( ctrl_pipe_t* pipe, char __user *buffer, size_t length );
-ssize_t ctrl_pipe_write( ctrl_pipe_t* pipe, char *buffer, size_t length );
+ssize_t ctrl_pipe_write( ctrl_pipe_t* pipe, const char __user *buffer, size_t length );
 
 unsigned int ctrl_pipe_poll( ctrl_pipe_t* pipe );
 

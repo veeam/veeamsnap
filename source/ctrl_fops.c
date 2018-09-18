@@ -62,28 +62,14 @@ ssize_t ctrl_read(struct file *fl, char __user *buffer, size_t length, loff_t *o
 ssize_t ctrl_write( struct file *fl, const char __user *buffer, size_t length, loff_t *offset )
 {
 	ssize_t bytes_wrote = 0;
-	char* kern_buffer = NULL;
 
-	kern_buffer = dbg_kmalloc( length, GFP_KERNEL );
-	if (kern_buffer == NULL){
-		log_errorln_sz( "Failed to allocate buffer. length=", length );
-		return -ENOMEM;
+	ctrl_pipe_t* pipe = (ctrl_pipe_t*)fl->private_data;
+	if (NULL == pipe){
+		log_errorln( "Failed to write to pipe. Invalid pipe pointer" );
+		bytes_wrote = -EINVAL;
 	}
 
-	do{
-		ctrl_pipe_t* pipe = (ctrl_pipe_t*)fl->private_data;
-
-		if (0 != copy_from_user( kern_buffer, buffer, length )){
-		log_errorln( "Invalid user buffer" );
-			bytes_wrote = -EINVAL;
-
-			break;
-		}
-
-		bytes_wrote = ctrl_pipe_write( pipe, kern_buffer, length );
-
-	} while (false);
-	dbg_kfree( kern_buffer );
+	bytes_wrote = ctrl_pipe_write( pipe, buffer, length );
 
 	return bytes_wrote;
 }
@@ -407,7 +393,7 @@ int ioctl_snapstore_create( unsigned long arg )
 	do{
 		size_t inx = 0;
 		dev_t* dev_id_set = NULL;
-		uuid_t* id = (uuid_t*)param.id;
+		veeam_uuid_t* id = (veeam_uuid_t*)param.id;
 		dev_t snapstore_dev_id = MKDEV( param.snapstore_dev_id.major, param.snapstore_dev_id.minor );
 		size_t dev_id_set_length = (size_t)param.count;
 
@@ -440,23 +426,27 @@ int ioctl_snapstore_file( unsigned long arg )
 {
 	int res = SUCCESS;
 	struct ioctl_snapstore_file_add_s param;
-	struct ioctl_range_s* ranges = NULL;
+	page_array_t* ranges = NULL;
+	size_t ranges_buffer_size;
 
 	if (0 != copy_from_user( &param, (void*)arg, sizeof( struct ioctl_snapstore_file_add_s ) )){
 		log_errorln( "Invalid buffer" );
 		return -EINVAL;
 	}
 
-	ranges = dbg_kzalloc( sizeof( struct ioctl_range_s ) * param.range_count, GFP_KERNEL );
+	ranges_buffer_size = sizeof( struct ioctl_range_s ) * param.range_count;
+
+	ranges = page_array_alloc( page_count_calc( ranges_buffer_size ), GFP_KERNEL );
 	if (NULL == ranges){
 		log_errorln( "Cannot allocate memory" );
 		return -ENOMEM;
 	}
+
 	do{
-		uuid_t* id = (uuid_t*)(param.id);
+		veeam_uuid_t* id = (veeam_uuid_t*)(param.id);
 		size_t ranges_cnt = (size_t)param.range_count;
 
-		if (0 != copy_from_user( ranges, (void*)param.ranges, ranges_cnt*sizeof( struct ioctl_range_s ) )){
+		if (ranges_buffer_size != page_array_user2page( (void*)param.ranges, 0, ranges, ranges_buffer_size )){
 			log_errorln( "Invalid user buffer from parameters." );
 			res = -ENODATA;
 			break;
@@ -464,7 +454,7 @@ int ioctl_snapstore_file( unsigned long arg )
 
 		res = snapstore_add_file( id, ranges, ranges_cnt );
 	}while (false);
-	dbg_kfree( ranges );
+	page_array_free( ranges );
 
 	return res;
 }
@@ -478,7 +468,7 @@ int ioctl_snapstore_memory( unsigned long arg )
 		return -EINVAL;
 	}
 
-	res = snapstore_add_memory( (uuid_t*)param.id, param.size );
+	res = snapstore_add_memory( (veeam_uuid_t*)param.id, param.size );
 
 	return res;
 }
@@ -491,8 +481,8 @@ int ioctl_snapstore_cleanup( unsigned long arg )
 		log_errorln( "Invalid buffer" );
 		return -EINVAL;
 	}
-	log_traceln_uuid( "id=", ((uuid_t*)(param.id)) );
-	res = snapstore_cleanup( (uuid_t*)param.id, &param.filled_bytes );
+	log_traceln_uuid( "id=", ((veeam_uuid_t*)(param.id)) );
+	res = snapstore_cleanup( (veeam_uuid_t*)param.id, &param.filled_bytes );
 
 	if (res == SUCCESS){
 		if (0 != copy_to_user( (void*)arg, &param, sizeof( struct ioctl_snapstore_cleanup_s ) )){
@@ -518,7 +508,7 @@ int ioctl_snapshotdata_add_dev( unsigned long arg )
 
 	{
 		snapshotdata_shared_t* shared = NULL;
-		shared = snapshotdata_shared_find_by_id( (uuid_t*)(param.id) );
+		shared = snapshotdata_shared_find_by_id( (veeam_uuid_t*)(param.id) );
 		if (shared == NULL)
 			return -ENODATA;
 
@@ -534,7 +524,7 @@ int ioctl_snapshotdata_common( unsigned long arg )
 	struct ioctl_snapshotdata_common_s param;
 	dev_t dev_id_host_data;
 	size_t range_count;
-	uuid_t* id = NULL;
+	veeam_uuid_t* id = NULL;
 	struct ioctl_range_s* user_ranges = NULL;
 	size_t buff_size;
 	struct ioctl_range_s* local_range = NULL;
@@ -547,7 +537,7 @@ int ioctl_snapshotdata_common( unsigned long arg )
 	log_traceln_dev_id_s( "dev_id_host_data:", param.dev_id_host_data );
 	log_traceln_d( "rangeset count=", param.range_count );
 
-	id = (uuid_t*)(param.id);
+	id = (veeam_uuid_t*)(param.id);
 	dev_id_host_data = MKDEV( param.dev_id_host_data.major, param.dev_id_host_data.minor );
 	range_count = (size_t)param.range_count;
 	user_ranges = param.ranges;
@@ -614,7 +604,7 @@ int ioctl_snapshotdata_memory( unsigned long arg )
 		return -EINVAL;
 	}
 
-	if (NULL == snapshotdata_memory_create( (uuid_t*)(param.id), size) )
+	if (NULL == snapshotdata_memory_create( (veeam_uuid_t*)(param.id), size) )
 		return -ENOMEM;
 
 	return SUCCESS;
@@ -630,7 +620,7 @@ int ioctl_snapshotdata_clean( unsigned long arg )
 		log_errorln( "Invalid buffer" );
 		return -EINVAL;;
 	}
-	return snapshotdata_shared_cleanup( (uuid_t*)(param.id) );
+	return snapshotdata_shared_cleanup( (veeam_uuid_t*)(param.id) );
 }
 //////////////////////////////////////////////////////////////////////////
 #endif //SNAPSTORE

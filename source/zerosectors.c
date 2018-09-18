@@ -1,10 +1,11 @@
 #include "stdafx.h"
-#include "zerosectors.h"
 #include "sector.h"
+#include "page_array.h"
+#include "zerosectors.h"
 
 #ifdef SNAPDATA_ZEROED
 
-int zerosectors_add_ranges( rangevector_t* zero_sectors, struct ioctl_range_s* ranges, size_t ranges_cnt )
+int zerosectors_add_ranges( rangevector_t* zero_sectors, page_array_t* ranges, size_t ranges_cnt )
 {
 	if ((ranges == NULL) || (ranges_cnt == 0))
 		return -EINVAL;
@@ -16,8 +17,10 @@ int zerosectors_add_ranges( rangevector_t* zero_sectors, struct ioctl_range_s* r
 		for (inx = 0; inx < ranges_cnt; ++inx){
 			int res = SUCCESS;
 			range_t range;
-			range.ofs = sector_from_streamsize( ranges[inx].left );
-			range.cnt = sector_from_streamsize( ranges[inx].right ) - range.ofs;
+			struct ioctl_range_s* ioctl_range = (struct ioctl_range_s*)page_get_element( ranges, inx, sizeof( struct ioctl_range_s ) );
+
+			range.ofs = sector_from_streamsize( ioctl_range->left );
+			range.cnt = sector_from_streamsize( ioctl_range->right ) - range.ofs;
 
 			//log_traceln_range( "range:", range );
 			res = rangevector_add( zero_sectors, &range );

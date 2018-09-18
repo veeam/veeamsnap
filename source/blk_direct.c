@@ -11,11 +11,7 @@ typedef struct blk_direct_bio_complete_s { // like struct submit_bio_ret
 
 int blk_direct_bioset_create( void )
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
-	BlkDirectBioset = bioset_create( 64, sizeof( blk_direct_bio_complete_t ) );
-#else
-	BlkDirectBioset = bioset_create( 64, sizeof( blk_direct_bio_complete_t ), BIOSET_NEED_BVECS | BIOSET_NEED_RESCUER );
-#endif
+	BlkDirectBioset = blk_bioset_create(sizeof(blk_direct_bio_complete_t));
 	if (BlkDirectBioset == NULL){
 		log_errorln( "Failed to create bio set." );
 		return -ENOMEM;
@@ -49,7 +45,7 @@ void blk_direct_bio_endio( struct bio *bb )
 		bio_compl->error = err;
 #else
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
+#ifndef BLK_STS_OK//#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
 		bio_compl->error = bb->bi_error;
 #else
 		if (bb->bi_status != BLK_STS_OK)
@@ -118,7 +114,7 @@ int _dev_direct_submit_pages(
 
 	}
 
-	nr_iovecs = page_count_calculate( ofs_sector, size_sector );
+	nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
 
 	while (NULL == (bb = _blk_dev_direct_bio_alloc( nr_iovecs ))){
 		log_errorln_d( "bio_alloc failed. nr_iovecs=", nr_iovecs );
@@ -130,11 +126,10 @@ int _dev_direct_submit_pages(
 	}
 	bio_compl = (blk_direct_bio_complete_t*)bb->bi_private;
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
-	bb->bi_bdev = blkdev;
+#ifdef bio_set_dev
+	bio_set_dev(bb, blkdev);
 #else
-	bb->bi_disk = blkdev->bd_disk;
-	bb->bi_partno = blkdev->bd_partno;
+	bb->bi_bdev = blkdev;
 #endif
 
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
@@ -228,11 +223,10 @@ int blk_direct_submit_page( struct block_device* blkdev, int direction, sector_t
 	}
 	bio_compl = (blk_direct_bio_complete_t*)bb->bi_private;
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
-	bb->bi_bdev = blkdev;
+#ifdef bio_set_dev
+	bio_set_dev(bb, blkdev);
 #else
-	bb->bi_disk = blkdev->bd_disk;
-	bb->bi_partno = blkdev->bd_partno;
+	bb->bi_bdev = blkdev;
 #endif
 
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)

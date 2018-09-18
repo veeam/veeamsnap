@@ -49,7 +49,7 @@ static __inline void blk_bio_end( struct bio *bio, int err )
 	bio_endio( bio, err );
 #else
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
+#ifndef BLK_STS_OK//#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
 	bio->bi_error = err;
 #else
 	if (err == SUCCESS)
@@ -104,3 +104,21 @@ sector_t blk_bio_io_vec_sectors( struct bio* bio )
 	return sect_cnt;
 }
 
+
+static inline
+struct bio_set* blk_bioset_create(unsigned int front_pad)
+{
+#ifdef OS_RELEASE_SUSE
+#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 12, 14 )
+	return bioset_create(64, front_pad);
+#else
+	return bioset_create(64, front_pad, BIOSET_NEED_BVECS | BIOSET_NEED_RESCUER);
+#endif
+#else
+#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
+	return bioset_create(64, front_pad);
+#else
+	return bioset_create(64, front_pad, BIOSET_NEED_BVECS | BIOSET_NEED_RESCUER);
+#endif
+#endif
+}

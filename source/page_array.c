@@ -123,14 +123,16 @@ size_t page_array_mem2pages( void* src, size_t arr_ofs, page_array_t* arr, size_
 	return processed_len;
 }
 
-size_t page_array_page2user( void* dst_user, size_t arr_ofs, page_array_t* arr, size_t length )
+size_t page_array_page2user( char __user* dst_user, size_t arr_ofs, page_array_t* arr, size_t length )
 {
 	size_t left_data_length;
 	int page_inx = arr_ofs / PAGE_SIZE;
 	size_t processed_len = 0;
 
-	{//first
-		size_t unordered = arr_ofs & (PAGE_SIZE - 1);
+	
+	size_t unordered = arr_ofs & (PAGE_SIZE - 1);
+	if (unordered != 0)//first
+	{
 		size_t page_len = min_t( size_t, (PAGE_SIZE - unordered), length );
 
 		left_data_length = copy_to_user( dst_user + processed_len, arr->pg[page_inx].addr  + unordered, page_len );
@@ -159,20 +161,68 @@ size_t page_array_page2user( void* dst_user, size_t arr_ofs, page_array_t* arr, 
 	return processed_len;
 }
 
-size_t page_array_user2page( void* src_user_buffer, size_t arr_ofs, page_array_t* arr, size_t length )
+size_t page_array_user2page( const char __user* src_user, size_t arr_ofs, page_array_t* arr, size_t length )
 {
-	log_errorln( "unimplemented yet" );
-	BUG();
-	return -EFAULT;
+	size_t left_data_length;
+	int page_inx = arr_ofs / PAGE_SIZE;
+	size_t processed_len = 0;
+
+	size_t unordered = arr_ofs & (PAGE_SIZE - 1);
+	if (unordered != 0)//first
+	{
+		size_t page_len = min_t( size_t, (PAGE_SIZE - unordered), length );
+
+		left_data_length = copy_from_user( arr->pg[page_inx].addr + unordered, src_user + processed_len, page_len );
+		if (0 != left_data_length){
+			log_errorln( "Failed to copy data from page array to user buffer" );
+			return processed_len;
+		}
+
+		++page_inx;
+		processed_len += page_len;
+	}
+	while ((processed_len < length) && (page_inx < arr->pg_cnt))
+	{
+		size_t page_len = min_t( size_t, PAGE_SIZE, (length - processed_len) );
+
+		left_data_length = copy_from_user( arr->pg[page_inx].addr, src_user + processed_len, page_len );
+		if (0 != left_data_length){
+			log_errorln( "Failed to copy data from page array to user buffer" );
+			break;
+		}
+
+		++page_inx;
+		processed_len += page_len;
+	}
+
+	return processed_len;
 }
 
-size_t page_count_calculate( sector_t range_start_sect, sector_t range_cnt_sect )
+size_t page_count_calc( size_t buffer_size )
+{
+	size_t page_count = buffer_size / PAGE_SIZE;
+
+	if (buffer_size & (PAGE_SIZE - 1))
+		page_count += 1;
+	return page_count;
+}
+
+size_t page_count_calc_sectors( sector_t range_start_sect, sector_t range_cnt_sect )
 {
 	size_t page_count = range_cnt_sect / SECTORS_IN_PAGE;
 
 	if (unlikely( range_cnt_sect & (SECTORS_IN_PAGE - 1) ))
 		page_count += 1;
 	return page_count;
+}
+
+void* page_get_element( page_array_t* arr, size_t index, size_t sizeof_element )
+{
+	size_t elements_in_page = PAGE_SIZE / sizeof_element;
+	size_t pg_inx = index / elements_in_page;
+	size_t pg_ofs = (index - (pg_inx * elements_in_page)) * sizeof_element;
+
+	return (arr->pg[pg_inx].addr + pg_ofs);
 }
 
 char* page_get_sector( page_array_t* arr, sector_t arr_ofs )

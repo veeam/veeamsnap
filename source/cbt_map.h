@@ -18,7 +18,7 @@ typedef struct cbt_map_s
 
 	volatile unsigned long snap_number_active;
 	volatile unsigned long snap_number_previous;
-	uuid_t generationId;
+	veeam_uuid_t generationId;
 
 	volatile bool active;
 
