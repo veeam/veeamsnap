@@ -104,7 +104,7 @@ sector_t blk_bio_io_vec_sectors( struct bio* bio )
 	return sect_cnt;
 }
 
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 18, 0 )
 static inline
 struct bio_set* blk_bioset_create(unsigned int front_pad)
 {
@@ -122,3 +122,4 @@ struct bio_set* blk_bioset_create(unsigned int front_pad)
 #endif
 #endif
 }
+#endif

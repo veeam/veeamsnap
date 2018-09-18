@@ -8,7 +8,19 @@ struct bio_set* BlkRedirectBioset = NULL;
 
 int blk_redirect_bioset_create( void )
 {
+	int ret;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,18,0)
 	BlkRedirectBioset = blk_bioset_create(0);
+#else
+	BlkRedirectBioset = kzalloc(sizeof(*BlkRedirectBioset), GFP_KERNEL);
+	if (!BlkRedirectBioset)
+		return -ENOMEM;
+	ret = bioset_init(BlkRedirectBioset, 64, 0, BIOSET_NEED_BVECS | BIOSET_NEED_RESCUER );
+	if (ret){
+		kfree(BlkRedirectBioset);
+		return ret;
+	}
+#endif
 	if (BlkRedirectBioset == NULL){
 		log_errorln( "Failed to create bio set." );
 		return -ENOMEM;
@@ -20,7 +32,11 @@ int blk_redirect_bioset_create( void )
 void blk_redirect_bioset_free( void )
 {
 	if (BlkRedirectBioset != NULL){
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,18,0)
 		bioset_free( BlkRedirectBioset );
+#else
+		bioset_exit( BlkRedirectBioset );
+#endif
 		BlkRedirectBioset = NULL;
 
 		log_traceln( "Specific bio set free." );

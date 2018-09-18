@@ -162,7 +162,19 @@ blk_deferred_t* blk_deferred_alloc(  sector_t sect_ofs, sector_t sect_len )
 
 int blk_deferred_bioset_create( void )
 {
+	int ret;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,18,0)
 	BlkDeferredBioset = blk_bioset_create(sizeof(dio_bio_complete_t));
+#else
+	BlkDeferredBioset = kzalloc(sizeof(*BlkDeferredBioset), GFP_KERNEL);
+	if (!BlkDeferredBioset)
+		return -ENOMEM;
+	ret = bioset_init(BlkDeferredBioset, 64, sizeof(dio_bio_complete_t), BIOSET_NEED_BVECS | BIOSET_NEED_RESCUER );
+	if (ret){
+		kfree(BlkDeferredBioset);
+		return ret;
+	}
+#endif
 	if (BlkDeferredBioset == NULL){
 		log_errorln( "Failed to create bio set." );
 		return -ENOMEM;
@@ -174,7 +186,11 @@ int blk_deferred_bioset_create( void )
 void blk_deferred_bioset_free( void )
 {
 	if (BlkDeferredBioset != NULL){
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,18,0)
 		bioset_free( BlkDeferredBioset );
+#else
+		bioset_exit( BlkDeferredBioset );
+#endif
 		BlkDeferredBioset = NULL;
 
 		log_traceln( "Specific bio set free." );
