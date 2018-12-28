@@ -3,31 +3,18 @@
 
 typedef struct _tracker_queue_s
 {
-	content_sl_t content;
+    content_sl_t content;
 
-	struct request_queue*	pTargetQueue;
-	make_request_fn*		TargetMakeRequest_fn;
+    struct request_queue*    original_queue;
+    make_request_fn*        original_make_request_fn;
 
-	atomic_t				atomRefCount;
+    atomic_t                atomic_ref_count;
 
 }tracker_queue_t;
 
-int tracker_queue_Init(void );
-int tracker_queue_Done(void );
+int tracker_queue_init(void );
+int tracker_queue_done(void );
 
-
-int tracker_queue_Ref(
-	struct request_queue* queue,
-	tracker_queue_t** ppTrackerQueue
-);
-
-void tracker_queue_Unref(
-	tracker_queue_t* pTrackerQueue
-);
-
-int tracker_queue_Find(
-	struct request_queue* queue,
-	tracker_queue_t** ppTrackerQueue
-);
-
-
+int tracker_queue_ref( struct request_queue* queue,    tracker_queue_t** ptracker_queue );
+void tracker_queue_unref( tracker_queue_t* ptracker_queue );
+int tracker_queue_find(    struct request_queue* queue, tracker_queue_t** ptracker_queue);

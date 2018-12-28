@@ -2,18 +2,18 @@
 
 typedef struct container_sl_s
 {
-	struct list_head headList;
+    struct list_head headList;
 
-	rwlock_t lock;
+    rwlock_t lock;
 
-	int content_size;
-	atomic_t cnt;
+    int content_size;
+    atomic_t cnt;
 }container_sl_t;
 
 typedef struct content_sl_s
 {
-	struct list_head link;
-	container_sl_t* container;
+    struct list_head link;
+    container_sl_t* container;
 }content_sl_t;
 
 int container_sl_alloc_counter( void );
@@ -46,7 +46,7 @@ read_lock( &Container.lock ); \
 if (!list_empty( &Container.headList )){ \
     struct list_head* _container_list_head; \
     list_for_each( _container_list_head, &Container.headList ){ \
-	    content = list_entry( _container_list_head, content_sl_t, link );
+        content = list_entry( _container_list_head, content_sl_t, link );
 
 #define CONTAINER_SL_FOREACH_END(Container) \
     } \

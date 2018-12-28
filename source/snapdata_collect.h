@@ -7,24 +7,27 @@
 
 typedef struct snapdata_collector_s
 {
-	content_sl_t content;
+    content_sl_t content;
 
-	dev_t dev_id;
-	struct block_device* device;
+    dev_t dev_id;
+    struct block_device* device;
 
-	tracker_queue_t* tracker_queue;
+    tracker_queue_t* tracker_queue;
 
-	void* magic_buff;
-	size_t magic_size;
+    void* magic_buff;
+    size_t magic_size;
 #ifdef SNAPDATA_SPARSE_CHANGES
-	sparse_bitmap_t changes_sparse;
+    sparse_bitmap_t changes_sparse;
 #else
-	page_array_t* changes;
-	stream_size_t start_index;
-	stream_size_t length;
+    page_array_t* changes;
+    stream_size_t start_index;
+    stream_size_t length;
 #endif
-	stream_size_t collected_size;
-	int fail_code;
+    stream_size_t collected_size;
+    stream_size_t in_bitmap_size;
+    int fail_code;
+
+    struct mutex locker;
 }snapdata_collector_t;
 
 

@@ -2,9 +2,9 @@
 
 
 typedef struct bitmap_sync_s{
-	spinlock_t lock;
-	unsigned int max_bit_count;
-	unsigned long* map;
+    spinlock_t lock;
+    unsigned int max_bit_count;
+    unsigned long* map;
 }bitmap_sync_t;
 
 int bitmap_sync_init( bitmap_sync_t* bitmap, unsigned int bit_count );
