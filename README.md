@@ -17,4 +17,4 @@ For more information, please visit:<br />
 • Veeam community forums: https://forums.veeam.com/veeam-agent-for-linux-f41/<br />
 
 ## Maintainer
-Veeam Software AG veeam_team@veeam.com 
+Veeam Software GmbH veeam_team@veeam.com 
