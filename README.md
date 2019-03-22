@@ -9,7 +9,7 @@ Type "make all" command to compile the module.
 Use "make load" and "make unload" commands to load and unload the module.
 
 ## Compatibility 
-This module supports Linux kernels from 2.6.32 to 4.14.
+This module supports Linux kernels from 2.6.32 to 4.18.
 
 ## How to use
 For more information, please visit:<br />
@@ -17,4 +17,4 @@ For more information, please visit:<br />
 • Veeam community forums: https://forums.veeam.com/veeam-agent-for-linux-f41/<br />
 
 ## Maintainer
-Veeam Software AG veeam_team@veeam.com 
+Veeam Software GmbH veeam_team@veeam.com 

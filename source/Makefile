@@ -6,7 +6,6 @@ KERNEL_MODULE_NAME := veeamsnap
 KERNEL_MODULE_OBJECT_FILE_LIST := \
 	log.o \
 	mem_alloc.o \
-	sparse_array_1lv.o \
 	sparse_bitmap.o \
 	container.o \
 	container_spinlocking.o \
@@ -14,6 +13,7 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 	bitmap_sync.o \
 	page_array.o \
 	rangelist.o \
+	rangelist_ex.o \
 	rangevector.o \
 	blk_util.o \
 	blk_direct.o \
@@ -27,20 +27,14 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 	snapdata_collect.o \
 	blk_descr_mem.o \
 	blk_descr_file.o \
+	blk_descr_multidev.o \
+	blk_descr_pool.o \
 	blk_descr_array.o \
 	snapstore.o \
 	snapstore_device.o \
 	snapstore_file.o \
 	snapstore_mem.o \
-	snapshotdata.o \
-	snapshotdata_blkinfo.o \
-	snapshotdata_buffer.o \
-	snapshotdata_common.o \
-	snapshotdata_file.o \
-	snapshotdata_memory.o \
-	snapshotdata_shared.o \
-	snapshotdata_stretch.o \
-	zerosectors.o \
+	snapstore_multidev.o \
 	snapshot.o \
 	tracking.o \
 	ctrl_fops.o \
@@ -49,7 +43,7 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 
 obj-m := $(KERNEL_MODULE_NAME).o
 $(KERNEL_MODULE_NAME)-y += $(KERNEL_MODULE_OBJECT_FILE_LIST)
-ccflags-y := -O2 -Wno-multichar $(COMPATIBILITY_FLAGS)
+ccflags-y := -O2 -Wno-multichar
 SHELL:=/bin/bash 
 ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; val="DISTRIB_NAME.$$ID"; echo "-D"$${val//[.-]/_} | awk '{print toupper($$0)}' ; fi )
 ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; awk '{ n=split($$0,v,"."); for (i=0; ++i<=n;) print "-DDISTRIB_VERSION_"i"="v[i] }' <<< $$VERSION_ID ; fi )

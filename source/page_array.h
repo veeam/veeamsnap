@@ -3,14 +3,14 @@
 #include "sector.h"
 
 typedef struct page_info_s{
-	struct page* page;
-	void* addr;
+    struct page* page;
+    void* addr;
 }page_info_t;
 
 typedef struct page_array_s
 {
-	size_t pg_cnt;
-	page_info_t pg[0];
+    size_t pg_cnt;
+    page_info_t pg[0];
 }page_array_t;
 
 void page_arrays_init( void );
@@ -34,6 +34,10 @@ char* page_get_sector( page_array_t* arr, sector_t arr_ofs );
 //
 void page_array_memset( page_array_t* arr, int value );
 void page_array_memcpy( page_array_t* dst, page_array_t* src );
+
+//pointer access
+int page_array_ptr_get(page_array_t* arr, size_t inx, void** value);
+int page_array_ptr_set(page_array_t* arr, size_t inx, void* value);
 
 //byte access
 int page_array_byte_get( page_array_t* arr, size_t inx, byte_t* value );

@@ -10,60 +10,75 @@
 #include "snapimage.h"
 #include "snapdata_collect.h"
 
-#ifdef SNAPSTORE
 #include "snapstore.h"
 #include "snapstore_device.h"
-#else //SNAPSTORE
-#include "snapshotdata_stretch.h"
-#include "snapshotdata_common.h"
-#include "snapshotdata_memory.h"
-#include "snapshotdata.h"
-#endif //SNAPSTORE
 
 #include "snapshot.h"
 #include "tracker_queue.h"
 #include "tracker.h"
 #include "sparse_bitmap.h"
 
+//#include "btrfs_support.h"
 
-int g_param_zerosnapdata = 0;
-int g_param_debuglogging = 0;
+#define SECTION "main      "
+#include "log_format.h"
+
+static int g_param_zerosnapdata = 0;
+static int g_param_debuglogging = 0;
+static char* logdir = "/var/log/veeam";
+
+static int g_param_snapstore_block_size_pow = 14;
+static int g_param_change_tracking_block_size_pow = 18;
+static unsigned int g_param_fixflags = 0;
 
 int get_debuglogging( void )
 {
-	return g_param_debuglogging;
+    return g_param_debuglogging;
 }
 int get_zerosnapdata( void )
 {
-	return g_param_zerosnapdata;
+    return g_param_zerosnapdata;
+}
+int get_snapstore_block_size_pow(void)
+{
+    return g_param_snapstore_block_size_pow;
+}
+int get_change_tracking_block_size_pow(void)
+{
+    return g_param_change_tracking_block_size_pow;
+}
+
+unsigned int get_fixflags(void)
+{
+    return g_param_fixflags;
 }
 
 static int veeamsnap_major = 0;
 
 
 static struct file_operations ctrl_fops = {
-	.owner  = THIS_MODULE,
-	.read   = ctrl_read,
-	.write  = ctrl_write,
-	.open   = ctrl_open,
-	.release= ctrl_release,
-	.poll   = ctrl_poll,
-	//.ioctl  = ctrl_ioctl,
-	.unlocked_ioctl = ctrl_unlocked_ioctl
+    .owner  = THIS_MODULE,
+    .read   = ctrl_read,
+    .write  = ctrl_write,
+    .open   = ctrl_open,
+    .release= ctrl_release,
+    .poll   = ctrl_poll,
+    //.ioctl  = ctrl_ioctl,
+    .unlocked_ioctl = ctrl_unlocked_ioctl
 };
 
 static inline void show_distrib(const char* distrib_name)
 {
-    pr_warn("Compile for distributive: %s", distrib_name);
+    log_tr_format("Compile for distributive: %s", distrib_name);
 }
 
 static inline void show_distrib_version(const char* distrib_name)
 {
 #if defined(DISTRIB_VERSION_1) && defined(DISTRIB_VERSION_2)
-    pr_warn("Compile for distributive: %s %d.%d", distrib_name, DISTRIB_VERSION_1, DISTRIB_VERSION_2);
+    log_tr_format("Compile for distributive: %s %d.%d", distrib_name, DISTRIB_VERSION_1, DISTRIB_VERSION_2);
 #else
 #if defined(DISTRIB_VERSION_1)
-    pr_warn("Compile for distributive: %s %d", distrib_name, DISTRIB_VERSION_1);
+    log_tr_format("Compile for distributive: %s %d", distrib_name, DISTRIB_VERSION_1);
 #else
     show_distrib(distrib_name);
 #endif
@@ -72,34 +87,44 @@ static inline void show_distrib_version(const char* distrib_name)
 
 int __init veeamsnap_init(void)
 {
-	int conteiner_cnt = 0;
-	int result = SUCCESS;
-
-	log_traceln("Loading");
-	log_traceln_s( "Version: ", FILEVER_STR );
-	log_traceln_s( "Author: ", AUTHOR_STR );
-	log_traceln_s( "licence: ", LICENCE_STR );
-	log_traceln_s( "description: ", DESCRIPTION_STR );
-
-	log_traceln_d( "zerosnapdata: ", g_param_zerosnapdata );
-	log_traceln_d( "debuglogging: ", g_param_debuglogging );
-
-#ifdef SNAPSTORE
-	log_traceln( "snapstore enabled" );
-#endif
-
-	conteiner_cnt = container_alloc_counter( );
-	log_traceln_d( "start. container_alloc_counter=", conteiner_cnt );
-
-	conteiner_cnt = container_sl_alloc_counter( );
-	log_traceln_d( "start. container_sl_alloc_counter=", conteiner_cnt );
+    //int conteiner_cnt = 0;
+    int result = SUCCESS;
 
 #ifdef VEEAMSNAP_MEMORY_LEAK_CONTROL
-	log_traceln_d( "start. mem_cnt=", atomic_read( &g_mem_cnt) );
-	log_traceln_d( "start. vmem_cnt=", atomic_read(&g_vmem_cnt) );
-	dbg_mem_init( );
+    dbg_mem_init( );
 #endif
+    logging_init( logdir );
+    log_tr( "================================================================================" );
+    log_tr( "Loading" );
+    log_tr_s( "Version: ", FILEVER_STR );
+    log_tr_s( "Author: ", AUTHOR_STR );
+    log_tr_s( "licence: ", LICENCE_STR );
+    log_tr_s( "description: ", DESCRIPTION_STR );
 
+    log_tr_d( "zerosnapdata: ", g_param_zerosnapdata );
+    log_tr_d( "debuglogging: ", g_param_debuglogging );
+    log_tr_d("snapstore_block_size_pow: ", g_param_snapstore_block_size_pow);
+    log_tr_d("change_tracking_block_size_pow: ", g_param_change_tracking_block_size_pow);
+    log_tr_s( "logdir: ", logdir );
+    log_tr_x("fixflags: ", g_param_fixflags);
+
+    if (g_param_snapstore_block_size_pow > 23){
+        g_param_snapstore_block_size_pow = 23;
+        log_tr_d("Limited snapstore_block_size_pow: ", g_param_snapstore_block_size_pow);
+    }
+    else if (g_param_snapstore_block_size_pow < 12){
+        g_param_snapstore_block_size_pow = 12;
+        log_tr_d("Limited snapstore_block_size_pow: ", g_param_snapstore_block_size_pow);
+    }
+
+    if (g_param_change_tracking_block_size_pow > 23){
+        g_param_change_tracking_block_size_pow = 23;
+        log_tr_d("Limited change_tracking_block_size_pow: ", g_param_change_tracking_block_size_pow);
+    }
+    else if (g_param_change_tracking_block_size_pow < 12){
+        g_param_change_tracking_block_size_pow = 12;
+        log_tr_d("Limited change_tracking_block_size_pow: ", g_param_change_tracking_block_size_pow);
+    }
 
 #if defined(DISTRIB_NAME_RHEL) || defined(DISTRIB_NAME_CENTOS) 
     show_distrib("RHEL or CentOS");
@@ -125,147 +150,134 @@ int __init veeamsnap_init(void)
 
 
 
-	//btreefs_enum( );
+    //btreefs_enum( );
 
-	page_arrays_init( );
+    page_arrays_init( );
 
-	do{
-		ctrl_init( );
+    do{
+        ctrl_init( );
 
-		veeamsnap_major = register_chrdev(0, MODULE_NAME, &ctrl_fops);
-		if (veeamsnap_major < 0) {
-			log_errorln_d("Registering the character device failed with ", veeamsnap_major);
-			result = veeamsnap_major;
-			break;
-		}
-		log_traceln_d ("Module major=", veeamsnap_major);
+        veeamsnap_major = register_chrdev(0, MODULE_NAME, &ctrl_fops);
+        if (veeamsnap_major < 0) {
+            log_err_d("Failed to register a character device. errno=", veeamsnap_major);
+            result = veeamsnap_major;
+            break;
+        }
+        log_tr_format("Module major [%d]", veeamsnap_major);
 
-		if ((result = blk_direct_bioset_create( )) != SUCCESS)
-			break;
-		if ((result = blk_redirect_bioset_create( )) != SUCCESS)
-			break;
+        if ((result = blk_direct_bioset_create( )) != SUCCESS)
+            break;
+        if ((result = blk_redirect_bioset_create( )) != SUCCESS)
+            break;
 
-		blk_deferred_init( );
-		if ((result = blk_deferred_bioset_create( )) != SUCCESS)
-			break;
+        blk_deferred_init( );
+        if ((result = blk_deferred_bioset_create( )) != SUCCESS)
+            break;
 
-		if ((result = sparsebitmap_init( )) != SUCCESS)
-			break;
+        if ((result = sparsebitmap_init( )) != SUCCESS)
+            break;
 
-		if ((result = tracker_Init( )) != SUCCESS)
-			break;
+        if ((result = tracker_init( )) != SUCCESS)
+            break;
 
-		if ((result = tracker_queue_Init( )) != SUCCESS)
-			break;
+        if ((result = tracker_queue_init( )) != SUCCESS)
+            break;
 
-		if ((result = snapshot_Init( )) != SUCCESS)
-			break;
+        if ((result = snapshot_Init( )) != SUCCESS)
+            break;
 
-#ifdef SNAPSTORE
-		if ((result = snapstore_device_init( )) != SUCCESS)
-			break;
-		if ((result = snapstore_init( )) != SUCCESS)
-			break;
-#else
-		if ((result = snapshotdata_Init( )) != SUCCESS)
-			break;
-		if ((result = snapshotdata_memory_Init( )) != SUCCESS)
-			break;
-		if ((result = snapshotdata_common_Init( )) != SUCCESS)
-			break;
-		if ((result = snapshotdata_stretch_Init( )) != SUCCESS)
-			break;
-#endif
+        if ((result = snapstore_device_init( )) != SUCCESS)
+            break;
+        if ((result = snapstore_init( )) != SUCCESS)
+            break;
 
-		if ((result = snapdata_collect_Init( )) != SUCCESS)
-			break;
+        if ((result = snapdata_collect_Init( )) != SUCCESS)
+            break;
 
-		if ((result = snapimage_init( )) != SUCCESS)
-			break;
+        if ((result = snapimage_init( )) != SUCCESS)
+            break;
 
-	}while(false);
+    }while(false);
+/*
 
-	conteiner_cnt = container_alloc_counter( );
-	log_traceln_d( "end. container_alloc_counter=", conteiner_cnt );
+    conteiner_cnt = container_alloc_counter( );
+    log_tr_d( "container_alloc_counter=", conteiner_cnt );
 
-	conteiner_cnt = container_sl_alloc_counter( );
-	log_traceln_d( "end. container_sl_alloc_counter=", conteiner_cnt );
-#ifdef VEEAMSNAP_MEMORY_LEAK_CONTROL
-	log_traceln_d( "end. mem_cnt=", atomic_read( &g_mem_cnt ) );
-	log_traceln_d( "end. vmem_cnt=", atomic_read( &g_vmem_cnt ) );
-#endif
-	return result;
+    conteiner_cnt = container_sl_alloc_counter( );
+    log_tr_d( "container_sl_alloc_counter=", conteiner_cnt );
+*/
+
+    return result;
 }
 
 void __exit veeamsnap_exit(void)
 {
-	int conteiner_cnt = 0;
-	int result;
-	log_traceln("Unloading module");
+    int conteiner_cnt = 0;
+    int result;
+    log_tr("Unloading module");
 
-	conteiner_cnt = container_alloc_counter( );
-	log_traceln_d( "start. container_alloc_counter=", conteiner_cnt );
+/*
+    conteiner_cnt = container_alloc_counter( );
+    log_tr_d( "start. container_alloc_counter=", conteiner_cnt );
+    conteiner_cnt = container_sl_alloc_counter( );
+    log_tr_d( "start. container_sl_alloc_counter=", conteiner_cnt );*/
 
-	conteiner_cnt = container_sl_alloc_counter( );
-	log_traceln_d( "start. container_sl_alloc_counter=", conteiner_cnt );
+
 #ifdef VEEAMSNAP_MEMORY_LEAK_CONTROL
-	log_traceln_d( "start. mem_cnt=", atomic_read( &g_mem_cnt ) );
-	log_traceln_d( "start. vmem_cnt=", atomic_read( &g_vmem_cnt ) );
-
-	log_traceln_sz( "vmem max usage=", dbg_vmem_get_max_usage( ) );
+    //log_tr_d( "mem_cnt=", atomic_read( &g_mem_cnt ) );
+    //log_tr_d( "vmem_cnt=", atomic_read( &g_vmem_cnt ) );
 #endif
-	result = snapshot_Done( );
-	if (SUCCESS == result){
 
-		snapdata_collect_Done( );
 
-#ifdef SNAPSTORE
-		snapstore_device_done( );
-		snapstore_done( );
-#else
-		snapshotdata_Done( );
-		snapshotdata_memory_Done( );
-		snapshotdata_common_Done( );
-		snapshotdata_stretch_Done( );
-#endif //SNAPSTORE
+    result = snapshot_Done( );
+    if (SUCCESS == result){
 
-		result = tracker_Done( );
-		if (SUCCESS == result){
-			result = tracker_queue_Done( );
-		}
+        snapdata_collect_Done( );
 
-		snapimage_done( );
+        snapstore_device_done( );
+        snapstore_done( );
 
-		sparsebitmap_done( );
+        result = tracker_done( );
+        if (SUCCESS == result){
+            result = tracker_queue_done( );
+        }
+
+        snapimage_done( );
+
+        sparsebitmap_done( );
 
 
 
-		blk_deferred_bioset_free( );
-		blk_deferred_done( );
+        blk_deferred_bioset_free( );
+        blk_deferred_done( );
 
-		blk_redirect_bioset_free( );
-		blk_direct_bioset_free( );
-	}
+        blk_redirect_bioset_free( );
+        blk_direct_bioset_free( );
+    }
 
-	if (SUCCESS != result){
-		log_traceln_d( "Unloading fail. err=", result );
-		return;
-	}
+    if (SUCCESS != result){
+        log_tr_d( "Failed to unload. errno=", result );
+        return;
+    }
 
-	unregister_chrdev(veeamsnap_major, MODULE_NAME);
+    unregister_chrdev(veeamsnap_major, MODULE_NAME);
 
-	ctrl_done( );
+    ctrl_done( );
 
-	conteiner_cnt = container_alloc_counter( );
-	log_traceln_d( "end. container_alloc_counter=", conteiner_cnt );
+    logging_done( );
 
-	conteiner_cnt = container_sl_alloc_counter( );
-	log_traceln_d( "end. container_sl_alloc_counter=", conteiner_cnt );
+    conteiner_cnt = container_alloc_counter( );
+    if (conteiner_cnt != 0)
+        log_err_d( "container_alloc_counter=", conteiner_cnt );
+
+    conteiner_cnt = container_sl_alloc_counter( );
+    if (conteiner_cnt != 0)
+        log_err_d( "container_sl_alloc_counter=", conteiner_cnt );
+
 #ifdef VEEAMSNAP_MEMORY_LEAK_CONTROL
-	log_traceln_d( "end. mem_cnt=", atomic_read( &g_mem_cnt ) );
-	log_traceln_d( "end. vmem_cnt=", atomic_read( &g_vmem_cnt ) );
+    if (atomic_read( &g_mem_cnt ) != 0)
+        log_err_d( "mem_cnt=", atomic_read( &g_mem_cnt ) );
 #endif
-	log_traceln_d("Module unloaded. Major=",veeamsnap_major);
 
 }
 
@@ -278,6 +290,18 @@ MODULE_PARM_DESC( zerosnapdata, "Zeroing snapshot data algorithm determine." );
 
 module_param_named( debuglogging, g_param_debuglogging, int, 0644 );
 MODULE_PARM_DESC( debuglogging, "Logging level switch." );
+
+module_param( logdir, charp, 0644 );
+MODULE_PARM_DESC( logdir, "Directory for module logs." );
+
+module_param_named(snapstore_block_size_pow, g_param_snapstore_block_size_pow, int, 0644);
+MODULE_PARM_DESC(snapstore_block_size_pow, "Snapstore block size binary pow. 20 for 1MiB block size");
+
+module_param_named(change_tracking_block_size_pow, g_param_change_tracking_block_size_pow, int, 0644);
+MODULE_PARM_DESC(change_tracking_block_size_pow, "Change-tracking block size binary pow. 18 for 256 KiB block size");
+
+module_param_named(fixflags, g_param_fixflags, uint, 0644);
+MODULE_PARM_DESC(fixflags, "Flags for known issues");
 
 MODULE_LICENSE( LICENCE_STR );
 MODULE_AUTHOR( AUTHOR_STR );

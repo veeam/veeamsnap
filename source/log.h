@@ -1,276 +1,89 @@
 #pragma once
+#include "uuid_util.h"
+#include "range.h"
 
-//#define GET_FILE	get_file_name(__FILE__)
+int logging_init( const char* logdir );
+void logging_done( void );
+void logging_renew_check( void );
+void log_s( const char* section, const unsigned level, const char* str );
+void log_s_s( const char* section, const unsigned level, const char* str1, const char* str2 );
+void log_s_d( const char* section, const unsigned level, const char* str, const int d );
+void log_s_ld( const char* section, const unsigned level, const char* s, const long d );
+void log_s_lld( const char* section, const unsigned level, const char* s, const long long d );
+void log_s_sz( const char* section, const unsigned level, const char* s, const size_t d );
+void log_s_x( const char* section, const unsigned level, const char* s, const int d );
+void log_s_lx( const char* section, const unsigned level, const char* s, const long d );
+void log_s_llx( const char* section, const unsigned level, const char* s, const long long d );
+void log_s_p( const char* section, const unsigned level, const char* s, const void* p );
+void log_s_dev_id( const char* section, const unsigned level, const char* s, const int major, const int minor );
+//void log_s_uuid_bytes( const char* section, const unsigned level, const char* s, const __u8 b[16] );
+void log_s_uuid(const char* section, const unsigned level, const char* s, const veeam_uuid_t* uuid);
+void log_s_range( const char* section, const unsigned level, const char* s, const range_t* range );
 
-static inline char* get_file_name(char* path)
-{
-	size_t namestart;
-	size_t pathlen = strlen(path);
-	if (0==pathlen)
-		return path;
+void log_vformat( const char* section, const int level, const char *frm, va_list args );
+void log_format( const char* section, const int level, const char* frm, ... );
+///////////////////////////////////////////////////////////////////////////////
+#define LOGGING_LEVEL_CMD 'CMD\0'
+#define LOGGING_LEVEL_ERR 'ERR\0'
+#define LOGGING_LEVEL_WRN 'WRN\0'
+#define LOGGING_LEVEL_TR  'TR \0'
 
-	namestart = pathlen;
-	while ( (namestart>0) ){
-		if ( (path[namestart]== '/') || (path[namestart]== '\\') ){
-			++namestart;
-			break;
-		}
-		--namestart;
-	}
-	return &path[namestart];
-}
+#define log_tr(msg) log_s(SECTION, LOGGING_LEVEL_TR, msg)
+#define log_tr_s(msg, value) log_s_s(SECTION, LOGGING_LEVEL_TR, msg, value)
+#define log_tr_d(msg, value) log_s_d(SECTION, LOGGING_LEVEL_TR, msg, value)
+#define log_tr_ld(msg, value) log_s_ld(SECTION, LOGGING_LEVEL_TR, msg, value)
+#define log_tr_sz(msg, value) log_s_sz(SECTION, LOGGING_LEVEL_TR, msg, value)
+#define log_tr_lld(msg, value) log_s_ld(SECTION, LOGGING_LEVEL_TR, msg, value)
+#define log_tr_x(msg, value) log_s_x(SECTION, LOGGING_LEVEL_TR, msg, value)
+#define log_tr_p(msg, value) log_s_p(SECTION, LOGGING_LEVEL_TR, msg, value)
+#define log_tr_llx(msg, value) log_s_llx(SECTION, LOGGING_LEVEL_TR, msg, value)
+#define log_tr_lx(msg, value) log_s_lx(SECTION, LOGGING_LEVEL_TR, msg, value)
+
+#define log_tr_dev_id_s(msg, devid) log_s_dev_id(SECTION, LOGGING_LEVEL_TR, msg, devid.major, devid.minor)
+#define log_tr_dev_t(msg, Device) log_s_dev_id(SECTION, LOGGING_LEVEL_TR, msg, MAJOR(Device), MINOR(Device) )
+
+#define log_tr_sect(msg, value) log_s_llx(SECTION, LOGGING_LEVEL_TR, msg, (unsigned long long)value)
+#define log_tr_uuid(msg, uuid) log_s_uuid(SECTION, LOGGING_LEVEL_TR, msg, uuid)
+//#define log_tr_uuid_bytes(msg, b) log_s_uuid_bytes(SECTION, LOGGING_LEVEL_TR, msg, b)
+#define log_tr_range(msg, range) log_s_range(SECTION, LOGGING_LEVEL_TR, msg, range)
 
 ///////////////////////////////////////////////////////////////////////////////
-#define log_traceln(StringMessage) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s\n", MODULE_NAME,  __FUNCTION__, StringMessage ); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s\n", MODULE_NAME,  __FUNCTION__, StringMessage ); break; \
-	default:          pr_warn("    %s:%s %s\n", MODULE_NAME,  __FUNCTION__, StringMessage ); \
-    }}
-#define log_traceln_s(StringMessage, StringValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s%s\n", MODULE_NAME,  __FUNCTION__, StringMessage, StringValue); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s%s\n", MODULE_NAME,  __FUNCTION__, StringMessage, StringValue); break; \
-	default:          pr_warn("    %s:%s %s%s\n", MODULE_NAME,  __FUNCTION__, StringMessage, StringValue); \
-	}}
-#define log_traceln_d(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue ); break; \
-	default:          pr_warn("    %s:%s %s%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); \
-	}}
-#define log_traceln_ld(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s%ld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s%ld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue ); break; \
-	default:          pr_warn("    %s:%s %s%ld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); \
-    }}
-#define log_traceln_sz(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s%lu\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long)DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s%lu\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long)DecimalValue ); break; \
-	default:          pr_warn("    %s:%s %s%lu\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long)DecimalValue); \
-    }}
-#define log_traceln_lld(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s%lld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s%lld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue ); break; \
-	default:	      pr_warn("    %s:%s %s%lld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); \
-	}}
-#define log_traceln_x(StringMessage, HexValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s0x%x\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s0x%x\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue ); break; \
-	default:	      pr_warn("    %s:%s %s0x%x\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); \
-	}}
-#define log_traceln_p(StringMessage, Pointer) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s0x%p\n", MODULE_NAME,  __FUNCTION__, StringMessage, Pointer); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s0x%p\n", MODULE_NAME,  __FUNCTION__, StringMessage, Pointer ); break; \
-	default:	      pr_warn("    %s:%s %s0x%p\n", MODULE_NAME,  __FUNCTION__, StringMessage, Pointer); \
-	}}
-#define log_traceln_llx(StringMessage, HexValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	default:	      pr_warn("    %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); \
-	}}
-#define log_traceln_lx(StringMessage, HexValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s0x%lx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s0x%lx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	default:	      pr_warn("    %s:%s %s0x%lx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); \
-	}}
-#define log_traceln_dev_id_s(StringMessage, devid) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, devid.major, devid.minor); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, devid.major, devid.minor ); break; \
-	default:	      pr_warn("    %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, devid.major, devid.minor); \
-	}}
-#define log_traceln_dev_t(StringMessage, Device) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, MAJOR(Device), MINOR(Device)); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, MAJOR(Device), MINOR(Device)); break; \
-	default:	      pr_warn("    %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, MAJOR(Device), MINOR(Device)); \
-	}}
-#define log_traceln_sect(StringMessage, SectorValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)SectorValue); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)SectorValue ); break; \
-	default:	      pr_warn("    %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)SectorValue); \
-    }}
-#define log_traceln_uuid(StringMessage, uuid) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x%02x%02x\n", MODULE_NAME,  __FUNCTION__, StringMessage, uuid->b[0], uuid->b[1], uuid->b[2], uuid->b[3], uuid->b[4], uuid->b[5], uuid->b[6], uuid->b[7], uuid->b[8], uuid->b[9], uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14], uuid->b[15]); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x%02x%02x\n", MODULE_NAME,  __FUNCTION__, StringMessage, uuid->b[0], uuid->b[1], uuid->b[2], uuid->b[3], uuid->b[4], uuid->b[5], uuid->b[6], uuid->b[7], uuid->b[8], uuid->b[9], uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14], uuid->b[15]); break; \
-	default:	      pr_warn("    %s:%s %s%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x%02x%02x\n", MODULE_NAME,  __FUNCTION__, StringMessage, uuid->b[0], uuid->b[1], uuid->b[2], uuid->b[3], uuid->b[4], uuid->b[5], uuid->b[6], uuid->b[7], uuid->b[8], uuid->b[9], uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14], uuid->b[15]); \
-	}}
-#define log_traceln_range(StringMessage, range) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("    %s:%s %s ofs=0x%llx cnt=0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)range.ofs, (unsigned long long)range.cnt); break; \
-	case VEEAM_LL_LO: pr_info("    %s:%s %s ofs=0x%llx cnt=0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)range.ofs, (unsigned long long)range.cnt); break; \
-	default:	      pr_warn("    %s:%s %s ofs=0x%llx cnt=0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)range.ofs, (unsigned long long)range.cnt); \
-    }}
+#define log_warn(msg) log_s(SECTION, LOGGING_LEVEL_WRN, msg)
+#define log_warn_s(msg, value) log_s_s(SECTION, LOGGING_LEVEL_WRN, msg, value)
+#define log_warn_d(msg, value) log_s_d(SECTION, LOGGING_LEVEL_WRN, msg, value)
+#define log_warn_ld(msg, value) log_s_ld(SECTION, LOGGING_LEVEL_WRN, msg, value)
+#define log_warn_sz(msg, value) log_s_sz(SECTION, LOGGING_LEVEL_WRN, msg, value)
+#define log_warn_lld(msg, value) log_s_ld(SECTION, LOGGING_LEVEL_WRN, msg, value)
+#define log_warn_x(msg, value) log_s_x(SECTION, LOGGING_LEVEL_WRN, msg, value)
+#define log_warn_p(msg, value) log_s_p(SECTION, LOGGING_LEVEL_WRN, msg, value)
+#define log_warn_llx(msg, value) log_s_llx(SECTION, LOGGING_LEVEL_WRN, msg, value)
+#define log_warn_lx(msg, value) log_s_lx(SECTION, LOGGING_LEVEL_WRN, msg, value)
 
-///////////////////////////////////////////////////////////////////////////////
-#define log_errorln(StringMessage) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s\n", MODULE_NAME,  __FUNCTION__, StringMessage); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s\n", MODULE_NAME,  __FUNCTION__, StringMessage); break; \
-	default:	      pr_warn("ERR %s:%s %s\n", MODULE_NAME,  __FUNCTION__, StringMessage); \
-	}}
-#define log_errorln_s(StringMessage, StringValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s%s\n", MODULE_NAME,  __FUNCTION__, StringMessage, StringValue); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s%s\n", MODULE_NAME,  __FUNCTION__, StringMessage, StringValue); break; \
-	default:	      pr_warn("ERR %s:%s %s%s\n", MODULE_NAME,  __FUNCTION__, StringMessage, StringValue); \
-	}}
-#define log_errorln_d(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue ); break; \
-	default:	      pr_warn("ERR %s:%s %s%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); \
-	}}
-#define log_errorln_ld(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s%ld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s%ld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue ); break; \
-	default:	      pr_warn("ERR %s:%s %s%ld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); \
-	}}
-#define log_errorln_sz(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s%lu\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long)DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s%lu\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long)DecimalValue ); break; \
-	default:	      pr_warn("ERR %s:%s %s%lu\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long)DecimalValue); \
-	}}
-#define log_errorln_lld(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s%lld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s%lld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue ); break; \
-	default:	      pr_warn("ERR %s:%s %s%lld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); \
-	}}
-#define log_errorln_x(StringMessage, HexValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s0x%x\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s0x%x\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	default:	      pr_warn("ERR %s:%s %s0x%x\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); \
-	}}
-#define log_errorln_p(StringMessage, Pointer) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s0x%p\n", MODULE_NAME,  __FUNCTION__, StringMessage, Pointer); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s0x%p\n", MODULE_NAME,  __FUNCTION__, StringMessage, Pointer ); break; \
-	default:	      pr_warn("ERR %s:%s %s0x%p\n", MODULE_NAME,  __FUNCTION__, StringMessage, Pointer); \
-	}}
-#define log_errorln_llx(StringMessage, HexValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	default:	      pr_warn("ERR %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); \
-	}}\
+#define log_warn_dev_id_s(msg, devid) log_s_dev_id(SECTION, LOGGING_LEVEL_WRN, msg, devid.major, devid.minor)
+#define log_warn_dev_t(msg, Device) log_s_dev_id(SECTION, LOGGING_LEVEL_WRN, msg, MAJOR(Device), MINOR(Device) )
 
-#define log_errorln_lx(StringMessage, HexValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s0x%lx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s0x%lx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	default:	      pr_warn("ERR %s:%s %s0x%lx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); \
-	}}
-#define log_errorln_dev_t(StringMessage, Device) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, MAJOR(Device), MINOR(Device)); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, MAJOR(Device), MINOR(Device)); break; \
-	default:	      pr_warn("ERR %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, MAJOR(Device), MINOR(Device)); \
-	}}
-#define log_errorln_sect(StringMessage, SectorValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)SectorValue); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)SectorValue); break; \
-	default:	      pr_warn("ERR %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)SectorValue);\
-	}}
-#define log_errorln_uuid(StringMessage, uuid) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x%02x%02x\n", MODULE_NAME,  __FUNCTION__, StringMessage, uuid->b[0], uuid->b[1], uuid->b[2], uuid->b[3], uuid->b[4], uuid->b[5], uuid->b[6], uuid->b[7], uuid->b[8], uuid->b[9], uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14], uuid->b[15]); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x%02x%02x\n", MODULE_NAME,  __FUNCTION__, StringMessage, uuid->b[0], uuid->b[1], uuid->b[2], uuid->b[3], uuid->b[4], uuid->b[5], uuid->b[6], uuid->b[7], uuid->b[8], uuid->b[9], uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14], uuid->b[15]); break; \
-	default:	      pr_warn("ERR %s:%s %s%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x%02x%02x\n", MODULE_NAME,  __FUNCTION__, StringMessage, uuid->b[0], uuid->b[1], uuid->b[2], uuid->b[3], uuid->b[4], uuid->b[5], uuid->b[6], uuid->b[7], uuid->b[8], uuid->b[9], uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14], uuid->b[15]); \
-	}}
-#define log_errorln_range(StringMessage, range) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("ERR %s:%s %s ofs=0x%llx cnt=0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)range.ofs, (unsigned long long)range.cnt); break; \
-	case VEEAM_LL_LO: pr_info("ERR %s:%s %s ofs=0x%llx cnt=0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)range.ofs, (unsigned long long)range.cnt); break; \
-	default:	      pr_warn("ERR %s:%s %s ofs=0x%llx cnt=0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)range.ofs, (unsigned long long)range.cnt); \
-    }}
-///////////////////////////////////////////////////////////////////////////////
-#define log_warnln(StringMessage) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s\n", MODULE_NAME,  __FUNCTION__, StringMessage); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s\n", MODULE_NAME,  __FUNCTION__, StringMessage); break; \
-	default:	      pr_warn("WRN %s:%s %s\n", MODULE_NAME,  __FUNCTION__, StringMessage); \
-	}}
-#define log_warnln_s(StringMessage, StringValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s%s\n", MODULE_NAME,  __FUNCTION__, StringMessage, StringValue); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s%s\n", MODULE_NAME,  __FUNCTION__, StringMessage, StringValue); break; \
-	default:	      pr_warn("WRN %s:%s %s%s\n", MODULE_NAME,  __FUNCTION__, StringMessage, StringValue); \
-	}}
-#define log_warnln_d(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	default:	      pr_warn("WRN %s:%s %s%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); \
-	}}
-#define log_warnln_ld(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s%ld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s%ld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	default:	      pr_warn("WRN %s:%s %s%ld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); \
-	}}
-#define log_warnln_sz(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s%lu\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long)DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s%lu\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long)DecimalValue); break; \
-	default:	      pr_warn("WRN %s:%s %s%lu\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long)DecimalValue); \
-	}}
-#define log_warnln_lld(StringMessage, DecimalValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s%lld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s%lld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); break; \
-	default:	      pr_warn("WRN %s:%s %s%lld\n", MODULE_NAME,  __FUNCTION__, StringMessage, DecimalValue); \
-	}}
-#define log_warnln_x(StringMessage, HexValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s0x%x\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s0x%x\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	default:	      pr_warn("WRN %s:%s %s0x%x\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); \
-	}}
-#define log_warnln_p(StringMessage, Pointer) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s0x%p\n", MODULE_NAME,  __FUNCTION__, StringMessage, Pointer); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s0x%p\n", MODULE_NAME,  __FUNCTION__, StringMessage, Pointer); break; \
-	default:	      pr_warn("WRN %s:%s %s0x%p\n", MODULE_NAME,  __FUNCTION__, StringMessage, Pointer); \
-	}}
-#define log_warnln_llx(StringMessage, HexValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	default:	      pr_warn("WRN %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); \
-	}}
-#define log_warnln_lx(StringMessage, HexValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s0x%lx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s0x%lx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); break; \
-	default:	      pr_warn("WRN %s:%s %s0x%lx\n", MODULE_NAME,  __FUNCTION__, StringMessage, HexValue); \
-    }}
-#define log_warnln_dev_t(StringMessage, Device) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, MAJOR(Device), MINOR(Device)); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, MAJOR(Device), MINOR(Device)); break; \
-	default:	      pr_warn("WRN %s:%s %s%d:%d\n", MODULE_NAME,  __FUNCTION__, StringMessage, MAJOR(Device), MINOR(Device)); \
-	}}
-#define log_warnln_sect(StringMessage, SectorValue) \
-	{switch(get_debuglogging()){ \
-	case VEEAM_LL_HI: pr_err ("WRN %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)SectorValue); break; \
-	case VEEAM_LL_LO: pr_info("WRN %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)SectorValue); break; \
-	default:	      pr_warn("WRN %s:%s %s0x%llx\n", MODULE_NAME,  __FUNCTION__, StringMessage, (unsigned long long)SectorValue); \
-	}}
-///////////////////////////////////////////////////////////////////////////////
+#define log_warn_sect(msg, value) log_s_llx(SECTION, LOGGING_LEVEL_WRN, msg, (unsigned long long)value)
+#define log_warn_uuid(msg, uuid) log_s_uuid(SECTION, LOGGING_LEVEL_WRN, msg, uuid)
+//#define log_warn_uuid_bytes(msg, b) log_s_uuid_bytes(SECTION, LOGGING_LEVEL_WRN, msg, b)
+#define log_warn_range(msg, range) log_s_range(SECTION, LOGGING_LEVEL_WRN, msg, range)
+//////////////////////////////////////////////////////////////////////////
+#define log_err(msg) log_s(SECTION, LOGGING_LEVEL_ERR, msg)
+#define log_err_s(msg, value) log_s_s(SECTION, LOGGING_LEVEL_ERR, msg, value)
+#define log_err_d(msg, value) log_s_d(SECTION, LOGGING_LEVEL_ERR, msg, value)
+#define log_err_ld(msg, value) log_s_ld(SECTION, LOGGING_LEVEL_ERR, msg, value)
+#define log_err_lld(msg, value) log_s_lld(SECTION, LOGGING_LEVEL_ERR, msg, value)
+#define log_err_sz(msg, value) log_s_sz(SECTION, LOGGING_LEVEL_ERR, msg, value)
+#define log_err_x(msg, value) log_s_x(SECTION, LOGGING_LEVEL_ERR, msg, value)
+#define log_err_p(msg, value) log_s_p(SECTION, LOGGING_LEVEL_ERR, msg, value)
+#define log_err_llx(msg, value) log_s_llx(SECTION, LOGGING_LEVEL_ERR, msg, value)
+#define log_err_lx(msg, value) log_s_lx(SECTION, LOGGING_LEVEL_ERR, msg, value)
 
+#define log_err_dev_id_s(msg, devid) log_s_dev_id(SECTION, LOGGING_LEVEL_ERR, msg, devid.major, devid.minor)
+#define log_err_dev_t(msg, Device) log_s_dev_id(SECTION, LOGGING_LEVEL_ERR, msg, MAJOR(Device), MINOR(Device) )
+
+#define log_err_sect(msg, value) log_s_lld(SECTION, LOGGING_LEVEL_ERR, msg, (unsigned long long)value)
+#define log_err_uuid(msg, uuid) log_s_uuid(SECTION, LOGGING_LEVEL_ERR, msg, uuid)
+//#define log_err_uuid_bytes(msg, b) log_s_uuid_bytes(SECTION, LOGGING_LEVEL_ERR, msg, b)
+#define log_err_range(msg, range) log_s_range(SECTION, LOGGING_LEVEL_ERR, msg, range)
+//////////////////////////////////////////////////////////////////////////
 //void log_dump(void* p, size_t size);
