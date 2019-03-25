@@ -88,7 +88,8 @@ snapstore_device_t* _snapstore_device_get_by_snapstore_id( veeam_uuid_t* id )
 
 void _snapstore_device_destroy( snapstore_device_t* snapstore_device )
 {
-    log_tr_uuid( "Destroying snapstore device ", (&snapstore_device->snapstore->id) );
+    if (snapstore_device->snapstore)
+        log_tr_uuid( "Destroying snapstore device ", (&snapstore_device->snapstore->id) );
 
     blk_descr_array_done( &snapstore_device->store_block_map );
 
