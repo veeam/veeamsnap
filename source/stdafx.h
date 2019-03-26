@@ -34,7 +34,7 @@
 #include "log.h"
 
 #define LICENCE_STR "GPL"
-#define AUTHOR_STR  "Veeam Software AG"
+#define AUTHOR_STR  "Veeam Software Group GmbH"
 
 #define VEEAMSNAP_MEMORY_LEAK_CONTROL
 #include "mem_alloc.h"

@@ -177,7 +177,11 @@ static void _logging_filename_create( logging_t* logging, char* filepath, size_t
 {
     struct tm modify_time;
     getnstimeofday( &logging->m_modify_time );
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
     time_to_tm( logging->m_modify_time.tv_sec, 0, &modify_time );
+#else
+	time64_to_tm(logging->m_modify_time.tv_sec, 0, &modify_time);
+#endif
 
     snprintf( filepath, filepath_size, "%s/%s-%04ld%02d%02d.log",
         logging->m_logdir,
@@ -225,8 +229,13 @@ static void _logging_check_renew( logging_t* logging )
     log_tr_lld( "Log file size: ", sz );
 
     getnstimeofday( &_time );
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
     time_to_tm( _time.tv_sec, 0, &current_time );
     time_to_tm( logging->m_modify_time.tv_sec, 0, &modify_time );
+#else
+	time64_to_tm(_time.tv_sec, 0, &current_time);
+	time64_to_tm(logging->m_modify_time.tv_sec, 0, &modify_time);
+#endif
 
     if (
         (modify_time.tm_mday == current_time.tm_mday) &&
@@ -327,8 +336,11 @@ static int _logging_process( logging_t* logging )
 
             struct tm _time;
             char timebuff[256];
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
             time_to_tm( rq->m_time.tv_sec, 0, &_time );
-
+#else
+			time64_to_tm(rq->m_time.tv_sec, 0, &_time);
+#endif
             _log_prefix( timebuff, sizeof( timebuff ), &_time, rq, _log_level_to_text( rq->m_level ) );
 
 #ifdef LOGFILE
