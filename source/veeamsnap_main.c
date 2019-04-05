@@ -43,6 +43,14 @@ int get_snapstore_block_size_pow(void)
 {
     return g_param_snapstore_block_size_pow;
 }
+int inc_snapstore_block_size_pow(void)
+{
+    if (g_param_snapstore_block_size_pow > 30)
+        return -EFAULT;
+
+    ++g_param_snapstore_block_size_pow;
+    return SUCCESS;
+}
 int get_change_tracking_block_size_pow(void)
 {
     return g_param_change_tracking_block_size_pow;

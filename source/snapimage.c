@@ -1,7 +1,9 @@
 #include "stdafx.h"
 #include <asm/div64.h>
 #include <linux/cdrom.h>
-
+#ifdef VEEAMSNAP_MQ_IO
+#include <linux/blk-mq.h>
+#endif
 static inline unsigned long int do_div_inline( unsigned long long int division, unsigned long int divisor )
 {
     unsigned long int result;
@@ -441,7 +443,7 @@ void _snapimage_make_request( struct request_queue *q, struct bio *bio )
 #endif
 
 #else
-blk_qc_t _snapimage_make_request( struct request_queue *q, struct bio *bio )
+blk_qc_t _snapimage_make_request(struct request_queue *q, struct bio *bio)
 #endif
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION( 4, 4, 0 )
@@ -456,8 +458,12 @@ blk_qc_t _snapimage_make_request( struct request_queue *q, struct bio *bio )
     snapimage_t* image = q->queuedata;
 
     //bio_get( bio );
-    
-    if (q->queue_flags & ((1<<QUEUE_FLAG_STOPPED) | (1<<QUEUE_FLAG_DEAD))){
+#ifdef VEEAMSNAP_MQ_IO
+    if (unlikely(blk_mq_queue_stopped(q)))
+#else
+    if (unlikely(q->queue_flags & ((1 << QUEUE_FLAG_STOPPED) | (1 << QUEUE_FLAG_DEAD))))
+#endif
+    {
         log_tr_lx( "Failed to make snapshot image request. Queue already is not active. Queue flags=", q->queue_flags );
         _snapimage_bio_complete( bio, -ENODEV );
 
@@ -610,12 +616,14 @@ int snapimage_create( dev_t original_dev )
         mutex_init( &image->open_locker );
         image->open_bdev = NULL;
         image->open_cnt = 0;
-
+#ifdef VEEAMSNAP_MQ_IO
+        image->queue = blk_alloc_queue(GFP_KERNEL);
+#else
         if (get_fixflags() & FIXFLAG_RH6_SPINLOCK)
             image->queue = blk_init_queue(NULL, NULL);
         else
             image->queue = blk_init_queue(NULL, &image->queue_lock);
-
+#endif
         if (NULL == image->queue){
             log_err( "Unable to create snapshot image: failed to allocate block device queue" );
             res = -ENOMEM;
@@ -716,17 +724,22 @@ void _snapimage_stop( snapimage_t* image )
 {
     if (image->rq_processor != NULL){
         if (queue_sl_active( &image->rq_proc_queue, false )){
-            unsigned long flags;
             struct request_queue* q = image->queue;
 
             log_tr( "Snapshot image request processing stop" );
 
             if (!blk_queue_stopped( q )){
-                blk_sync_queue( q );
-
-                spin_lock_irqsave( q->queue_lock, flags );
-                blk_stop_queue( q );
-                spin_unlock_irqrestore( q->queue_lock, flags );
+                blk_sync_queue(q);
+#ifdef VEEAMSNAP_MQ_IO
+                blk_mq_stop_hw_queues(q);
+#else
+                {
+                    unsigned long flags;
+                    spin_lock_irqsave(q->queue_lock, flags);
+                    blk_stop_queue(q);
+                    spin_unlock_irqrestore(q->queue_lock, flags);
+                }
+#endif
             }
         }
 
