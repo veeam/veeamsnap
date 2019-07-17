@@ -4,6 +4,11 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/version.h>
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)
+#define VEEAMSNAP_MQ_IO
+#endif
+
 #include <linux/fs.h>
 #include <linux/types.h>
 #include <linux/genhd.h> // For basic block driver framework
@@ -77,6 +82,7 @@ int get_debuglogging( void );
 #define VEEAM_ZEROSNAPDATA_ON  1
 int get_zerosnapdata( void );
 int get_snapstore_block_size_pow(void);
+int inc_snapstore_block_size_pow(void);
 int get_change_tracking_block_size_pow(void);
 
 #define FIXFLAG_RH6_SPINLOCK 1    //https://www.veeam.com/kb2786 
@@ -101,5 +107,7 @@ unsigned int get_fixflags(void);
 #if defined(DISTRIB_NAME_OPENSUSE_LEAP) || defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_SLES) || defined(DISTRIB_NAME_SLES_SAP)
 #define OS_RELEASE_SUSE
 #endif
+
+//#define SNAPIMAGE_TRACER
 
 #endif /* STDAFX_H_ */

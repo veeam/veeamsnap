@@ -283,11 +283,6 @@ int tracking_read_cbt_bitmap( dev_t dev_id, unsigned int offset, size_t length, 
     int result = SUCCESS;
     tracker_t* tracker = NULL;
 
-    if (!access_ok( VERIFY_WRITE, user_buff, length )){
-        log_err( "Unable to read CBT bitmap for device [%d:%d]: invalid user buffer" );
-        result = -EINVAL;
-    }
-
     result = tracker_find_by_dev_id(dev_id, &tracker);
     if ( SUCCESS == result ){
         if (atomic_read( &tracker->is_captured )){

@@ -14,6 +14,5 @@ void blk_descr_mem_pool_init( blk_descr_pool_t* pool, size_t available_blocks );
 void blk_descr_mem_pool_done( blk_descr_pool_t* pool );
 
 int blk_descr_mem_pool_add( blk_descr_pool_t* pool, void* buffer );
-blk_descr_mem_t* blk_descr_mem_pool_at( blk_descr_pool_t* pool, size_t index );
 blk_descr_mem_t* blk_descr_mem_pool_take( blk_descr_pool_t* pool );
 

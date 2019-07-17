@@ -141,11 +141,6 @@ int ioctl_get_version( unsigned long arg )
 {
     log_tr( "Get version" );
 
-    if (!access_ok( VERIFY_WRITE, (void*)arg, sizeof( struct ioctl_getversion_s ) )){
-        log_err( "Unable to get version: invalid user buffer" );
-        return -EINVAL;
-    }
-
     if (0 != copy_to_user( (void*)arg, &version, sizeof( struct ioctl_getversion_s ) )){
         log_err( "Unable to get version: invalid user buffer" );
         return -ENODATA;
@@ -158,11 +153,6 @@ int ioctl_tracking_add( unsigned long arg )
 {
     struct ioctl_dev_id_s dev;
 
-    if (!access_ok( VERIFY_READ, (void*)arg, sizeof( struct ioctl_dev_id_s ) )){
-        log_err( "Unable to add device under tracking: invalid user buffer" );
-        return -EINVAL;
-    }
-
     if (0 != copy_from_user( &dev, (void*)arg, sizeof( struct ioctl_dev_id_s ) )){
         log_err( "Unable to add device under tracking: invalid user buffer" );
         return -ENODATA;
@@ -174,11 +164,6 @@ int ioctl_tracking_add( unsigned long arg )
 int ioctl_tracking_remove( unsigned long arg )
 {
     struct ioctl_dev_id_s dev;
-
-    if (!access_ok( VERIFY_READ, (void*)arg, sizeof( struct ioctl_dev_id_s ) )){
-        log_err( "Unable to remove device from tracking: invalid user buffer" );
-        return -EINVAL;
-    }
 
     if (0 != copy_from_user( &dev, (void*)arg, sizeof( struct ioctl_dev_id_s ) )){
         log_err( "Unable to remove device from tracking: invalid user buffer" );
@@ -193,11 +178,6 @@ int ioctl_tracking_collect( unsigned long arg )
     struct ioctl_tracking_collect_s get;
 
     log_tr( "Collecting tracking devices:" );
-
-    if (!access_ok( VERIFY_WRITE, (void*)arg, sizeof( struct ioctl_tracking_collect_s ) )){
-        log_err( "Unable to collect tracking devices: invalid user buffer" );
-        return -EINVAL;
-    }
 
     if (0 != copy_from_user( &get, (void*)arg, sizeof( struct ioctl_tracking_collect_s ) )){
         log_err( "Unable to collect tracking devices: invalid user buffer" );
@@ -219,11 +199,6 @@ int ioctl_tracking_collect( unsigned long arg )
     else
     {
         struct cbt_info_s* p_cbt_info = NULL;
-
-        if (!access_ok(VERIFY_WRITE, get.p_cbt_info, get.count * sizeof(struct cbt_info_s))){
-            log_err("Unable to collect tracking devices: invalid second user buffer");
-            return -EINVAL;
-        }
 
         p_cbt_info = dbg_kzalloc(get.count * sizeof(struct cbt_info_s), GFP_KERNEL);
         if (NULL == p_cbt_info){
@@ -272,11 +247,6 @@ int ioctl_tracking_read_cbt_map( unsigned long arg )
 {
     struct ioctl_tracking_read_cbt_bitmap_s readbitmap;
 
-    if (!access_ok( VERIFY_READ, (void*)arg, sizeof( struct ioctl_tracking_read_cbt_bitmap_s ) )){
-        log_err( "Unable to read CBT map: invalid user buffer" );
-        return -EINVAL;
-    }
-
     if (0 != copy_from_user( &readbitmap, (void*)arg, sizeof( struct ioctl_tracking_read_cbt_bitmap_s ) )){
         log_err( "Unable to read CBT map: invalid user buffer" );
         return -ENODATA;
@@ -296,11 +266,6 @@ int ioctl_tracking_mark_dirty_blocks(unsigned long arg)
     struct block_range_s* p_dirty_blocks;
     size_t buffer_size;
     int result = SUCCESS;
-
-    if (!access_ok(VERIFY_READ, (void*)arg, sizeof(struct ioctl_tracking_mark_dirty_blocks_s))){
-        log_err("Unable to mark dirty blocks: invalid user buffer");
-        return -EINVAL;
-    }
 
     if (0 != copy_from_user(&param, (void*)arg, sizeof(struct ioctl_tracking_mark_dirty_blocks_s))){
         log_err("Unable to mark dirty blocks: invalid user buffer");
@@ -335,19 +300,9 @@ int ioctl_snapshot_create( unsigned long arg )
     struct ioctl_snapshot_create_s param;
     struct ioctl_dev_id_s* pk_dev_id = NULL;
 
-    if (!access_ok( VERIFY_WRITE, (void*)arg, sizeof( struct ioctl_snapshot_create_s ) )){
-        log_err( "Unable to create snapshot: invalid user buffer" );
-        return -EINVAL;
-    }
-
     if (0 != copy_from_user( &param, (void*)arg, sizeof( struct ioctl_snapshot_create_s ) )){
         log_err( "Unable to create snapshot: invalid user buffer" );
         return -ENODATA;
-    }
-
-    if (!access_ok( VERIFY_WRITE, param.p_dev_id, param.count*sizeof( struct ioctl_dev_id_s ) )){
-        log_err( "Unable to create snapshot: cannot access user buffer" );
-        return -EINVAL;
     }
 
     dev_id_buffer_size = sizeof( struct ioctl_dev_id_s ) * param.count;
@@ -401,11 +356,6 @@ int ioctl_snapshot_create( unsigned long arg )
 int ioctl_snapshot_destroy( unsigned long arg )
 {
     unsigned long long param;
-
-    if (!access_ok( VERIFY_READ, (void*)arg, sizeof( unsigned long long ) )){
-        log_err( "Unable to destroy snapshot: invalid user buffer" );
-        return -EINVAL;
-    }
 
     if (0 != copy_from_user( &param, (void*)arg, sizeof( unsigned long long ) )){
         log_err( "Unable to destroy snapshot: invalid user buffer" );

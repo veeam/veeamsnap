@@ -1,7 +1,9 @@
 #include "stdafx.h"
 #include <asm/div64.h>
 #include <linux/cdrom.h>
-
+#ifdef VEEAMSNAP_MQ_IO
+#include <linux/blk-mq.h>
+#endif
 static inline unsigned long int do_div_inline( unsigned long long int division, unsigned long int divisor )
 {
     unsigned long int result;
@@ -27,6 +29,19 @@ static bitmap_sync_t g_snapimage_minors;
 static container_t SnapImages;
 struct rw_semaphore snap_image_destroy_lock;
 
+#ifdef SNAPIMAGE_TRACER
+
+typedef struct trace_page_s
+{
+    struct list_head link;
+    struct page* pg;
+    unsigned int load_inx;
+    unsigned int store_inx;
+    trace_record_t records[0];
+}trace_page_t;
+
+#define TRACE_RECORDS_PER_PAGE ((PAGE_SIZE - offsetof(trace_page_t, records)) / sizeof(trace_record_t))
+#endif
 
 typedef struct snapimage_s{
     content_t content;
@@ -34,14 +49,14 @@ typedef struct snapimage_s{
     sector_t capacity;
     dev_t original_dev;
 
-    defer_io_t*    defer_io;
+    defer_io_t* defer_io;
     cbt_map_t* cbt_map;
 
     dev_t image_dev;
 
     spinlock_t queue_lock;        // For exclusive access to our request queue
     struct request_queue* queue;
-    struct gendisk*    disk;
+    struct gendisk* disk;
 
     atomic_t own_cnt;
 
@@ -49,8 +64,8 @@ typedef struct snapimage_s{
 
     struct task_struct* rq_processor;
 
-    wait_queue_head_t    rq_proc_event;
-    wait_queue_head_t    rq_complete_event;
+    wait_queue_head_t rq_proc_event;
+    wait_queue_head_t rq_complete_event;
 
     atomic64_t state_received;
 
@@ -65,7 +80,161 @@ typedef struct snapimage_s{
     struct mutex open_locker;
     struct block_device* open_bdev;
     volatile size_t open_cnt;
+#ifdef SNAPIMAGE_TRACER
+    struct list_head trace_list;
+    spinlock_t trace_lock;
+#endif
 }snapimage_t;
+
+#ifdef SNAPIMAGE_TRACER
+//////////////////////////////////////////////////////////////////////////
+#ifndef list_last_entry
+#define list_last_entry(ptr, type, member) \
+	list_entry((ptr)->prev, type, member)
+#endif
+#ifndef list_first_entry
+#define list_first_entry(ptr, type, member) \
+	list_entry((ptr)->next, type, member)
+#endif
+
+void image_trace_init(snapimage_t* image)
+{
+    INIT_LIST_HEAD(&image->trace_list);
+    spin_lock_init(&image->trace_lock);
+}
+
+trace_page_t* image_trace_new_page(snapimage_t* image)
+{
+    trace_page_t* trace_page = NULL;
+    struct page* pg = alloc_page(GFP_NOIO);
+    if (!pg)
+        return NULL;
+
+    trace_page = (trace_page_t*)page_address(pg);
+    trace_page->pg = pg;
+    trace_page->store_inx = 0;
+    trace_page->load_inx = 0;
+
+    INIT_LIST_HEAD(&trace_page->link);
+    
+    spin_lock(&image->trace_lock);
+    list_add_tail(&trace_page->link, &image->trace_list);
+    spin_unlock(&image->trace_lock);
+
+    return trace_page;
+}
+
+void __image_trace_free_page(trace_page_t* trace_page)
+{
+    list_del(&trace_page->link);
+    __free_page(trace_page->pg);
+}
+
+void image_trace_add(snapimage_t* image, sector_t ofs, unsigned int size, int direction)
+{
+    trace_page_t* trace_page = NULL;
+
+    spin_lock(&image->trace_lock);
+    if (!list_empty(&image->trace_list)){
+        trace_page = list_last_entry(&image->trace_list, trace_page_t, link);
+        if (trace_page->store_inx == TRACE_RECORDS_PER_PAGE) //end of page achieved
+            trace_page = NULL;
+    }
+    spin_unlock(&image->trace_lock);
+
+    if (!trace_page)
+        trace_page = image_trace_new_page(image);
+
+    if (trace_page){
+        trace_page->records[trace_page->store_inx].time = get_jiffies_64();
+        trace_page->records[trace_page->store_inx].sector_ofs = ofs;
+        trace_page->records[trace_page->store_inx].size = size;
+        trace_page->records[trace_page->store_inx].direction = direction;
+
+        trace_page->store_inx++;
+    }
+}
+/*
+
+void __image_trace_log(snapimage_t* image)
+{
+    trace_page_t* trace_page = NULL;
+    if (list_empty(&image->trace_list)){
+        log_tr("snapshot image trace log is empty");
+        return;
+    }
+
+    list_for_each_entry(trace_page, &image->trace_list, link){
+        int inx = 0;
+        for (inx = 0; inx < trace_page->store_inx; ++inx){
+            log_tr_format("%s %lld : %x",
+                trace_page->records[inx].direction == READ ? "  " : "WR",
+                trace_page->records[inx].sector_ofs,
+                trace_page->records[inx].size
+                );
+        }
+    }
+}
+*/
+
+int image_trace_read(snapimage_t* image, unsigned int capacity, unsigned int* p_processed_count, trace_record_t __user* records)
+{
+    unsigned int processed_count = 0;
+
+    do{
+        unsigned int can_load = 0;
+        trace_page_t* trace_page = NULL;
+        bool end_of_list_achived = false;
+
+        spin_lock(&image->trace_lock);
+        end_of_list_achived = list_empty(&image->trace_list);
+        spin_unlock(&image->trace_lock);
+
+        if (end_of_list_achived)
+            break;
+
+        spin_lock(&image->trace_lock);
+        trace_page = list_first_entry(&image->trace_list, trace_page_t, link);
+        if (trace_page->load_inx == TRACE_RECORDS_PER_PAGE) //end of page achieved
+            list_del(&trace_page->link);
+        spin_unlock(&image->trace_lock);
+
+        if (trace_page->load_inx == TRACE_RECORDS_PER_PAGE){ //end of page achieved
+            __free_page(trace_page->pg);
+            trace_page = NULL;
+            continue;
+        }
+
+        can_load = min((trace_page->store_inx - trace_page->load_inx), (capacity - processed_count));
+        if (can_load == 0) //end of data achieved
+            break;
+
+        if (0 != copy_to_user(records + processed_count, trace_page->records + trace_page->load_inx, can_load * sizeof(trace_record_t))){
+            log_err("[TBD] Unable to write trace info: invalid user buffer");
+            return -EINVAL;
+        }
+
+        trace_page->load_inx += can_load;
+        processed_count += can_load;
+
+    } while (processed_count < capacity);
+    //log_tr_d("DEBUG! processed_count=", processed_count);
+
+    *p_processed_count = processed_count;
+    return SUCCESS;
+}
+
+void image_trace_done(snapimage_t* image)
+{
+    spin_lock(&image->trace_lock);
+    while (!list_empty(&image->trace_list)){
+        trace_page_t* trace_page = list_entry(image->trace_list.next, trace_page_t, link);
+        __image_trace_free_page(trace_page);
+    } while (false);
+    spin_unlock(&image->trace_lock);
+}
+//////////////////////////////////////////////////////////////////////////
+#endif
 
 int _snapimage_destroy( snapimage_t* image );
 
@@ -208,8 +377,8 @@ int _snapimage_ioctl( struct block_device *bdev, fmode_t mode, unsigned cmd, uns
                 res = -EFAULT;
             else
                 res = SUCCESS;
-            break;
         }
+        break;
         case CDROM_GET_CAPABILITY: //0x5331  / * get capabilities * / 
         {
             struct gendisk *disk = bdev->bd_disk;
@@ -218,8 +387,32 @@ int _snapimage_ioctl( struct block_device *bdev, fmode_t mode, unsigned cmd, uns
                 res = SUCCESS;
             else
                 res = -EINVAL;
-            break;
         }
+        break;
+#ifdef SNAPIMAGE_TRACER
+        case IOCTL_IMAGE_TRACE_READ:
+        {
+            struct ioctl_image_trace_read_s param;
+            //log_tr("DEBUG! IOCTL_IMAGE_TRACE_READ received");
+            if (0 == copy_from_user(&param, (void*)arg, sizeof(struct ioctl_image_trace_read_s))){
+                res = image_trace_read(image, param.capacity, &param.count, param.records );
+                if (res == SUCCESS){
+                    if (0 != copy_to_user((void*)arg, &param, sizeof(struct ioctl_image_trace_read_s))){
+                        log_err("[TBD] Unable to read trace info: invalid user buffer");
+                        res = -ENODATA;
+                    }
+                }
+                //else
+                //    log_err_d("[TBD] Unable to read trace info, errno=", 0-res);
+            }
+            else{
+                //log_err("[TBD] Unable to read trace info: invalid user buffer");
+                res = -EINVAL;
+            }
+            //log_tr("DEBUG! IOCTL_IMAGE_TRACE_READ complete");
+        }
+        break;
+#endif
         default:
             log_tr_format( "Snapshot image ioctl receive unsupported command. Device [%d:%d], command 0x%x, arg 0x%lx",
                 MAJOR( image->image_dev ), MINOR( image->image_dev ), cmd, arg );
@@ -323,6 +516,10 @@ void _snapimage_processing( snapimage_t * image )
 
     atomic64_inc( &image->state_inprocess );
     rq_endio = (blk_redirect_bio_endio_t*)queue_sl_get_first( &image->rq_proc_queue );
+
+#ifdef SNAPIMAGE_TRACER
+    image_trace_add(image, bio_bi_sector(rq_endio->bio), bio_bi_size(rq_endio->bio), bio_data_dir(rq_endio->bio));
+#endif
 
     if (bio_data_dir( rq_endio->bio ) == READ){
         image->last_read_sector = bio_bi_sector( rq_endio->bio );
@@ -441,7 +638,7 @@ void _snapimage_make_request( struct request_queue *q, struct bio *bio )
 #endif
 
 #else
-blk_qc_t _snapimage_make_request( struct request_queue *q, struct bio *bio )
+blk_qc_t _snapimage_make_request(struct request_queue *q, struct bio *bio)
 #endif
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION( 4, 4, 0 )
@@ -456,8 +653,12 @@ blk_qc_t _snapimage_make_request( struct request_queue *q, struct bio *bio )
     snapimage_t* image = q->queuedata;
 
     //bio_get( bio );
-    
-    if (q->queue_flags & ((1<<QUEUE_FLAG_STOPPED) | (1<<QUEUE_FLAG_DEAD))){
+#ifdef VEEAMSNAP_MQ_IO
+    if (unlikely(blk_mq_queue_stopped(q)))
+#else
+    if (unlikely(q->queue_flags & ((1 << QUEUE_FLAG_STOPPED) | (1 << QUEUE_FLAG_DEAD))))
+#endif
+    {
         log_tr_lx( "Failed to make snapshot image request. Queue already is not active. Queue flags=", q->queue_flags );
         _snapimage_bio_complete( bio, -ENODEV );
 
@@ -494,7 +695,7 @@ blk_qc_t _snapimage_make_request( struct request_queue *q, struct bio *bio )
                 log_err_d( "Failed to throttle snapshot image device. errno=", res );
                 _snapimage_bio_complete( bio, res );
                 break;
-        }
+            }
         }
 
         rq_endio = (blk_redirect_bio_endio_t*)queue_content_sl_new_opt( &image->rq_proc_queue, GFP_NOIO );
@@ -503,7 +704,11 @@ blk_qc_t _snapimage_make_request( struct request_queue *q, struct bio *bio )
             _snapimage_bio_complete( bio, -ENOMEM );
             break;
         }
-
+/*
+#ifdef SNAPIMAGE_TRACER
+        image_trace_add(image, bio_bi_sector(bio), bio_bi_size(bio), bio_data_dir(bio));
+#endif
+*/
         rq_endio->bio = bio;
         rq_endio->complete_cb = _snapimage_bio_complete_cb;
         rq_endio->complete_param = (void*)image;
@@ -607,15 +812,20 @@ int snapimage_create( dev_t original_dev )
         // queue with per request processing
         spin_lock_init( &image->queue_lock );
 
+#ifdef SNAPIMAGE_TRACER
+        image_trace_init(image);
+#endif
         mutex_init( &image->open_locker );
         image->open_bdev = NULL;
         image->open_cnt = 0;
-
+#ifdef VEEAMSNAP_MQ_IO
+        image->queue = blk_alloc_queue(GFP_KERNEL);
+#else
         if (get_fixflags() & FIXFLAG_RH6_SPINLOCK)
             image->queue = blk_init_queue(NULL, NULL);
         else
             image->queue = blk_init_queue(NULL, &image->queue_lock);
-
+#endif
         if (NULL == image->queue){
             log_err( "Unable to create snapshot image: failed to allocate block device queue" );
             res = -ENOMEM;
@@ -623,7 +833,7 @@ int snapimage_create( dev_t original_dev )
         }
         image->queue->queuedata = image;
 
-         blk_queue_make_request( image->queue, _snapimage_make_request );
+        blk_queue_make_request( image->queue, _snapimage_make_request );
         blk_queue_max_segment_size( image->queue, 1024 * PAGE_SIZE );
 
         {
@@ -716,17 +926,22 @@ void _snapimage_stop( snapimage_t* image )
 {
     if (image->rq_processor != NULL){
         if (queue_sl_active( &image->rq_proc_queue, false )){
-            unsigned long flags;
             struct request_queue* q = image->queue;
 
             log_tr( "Snapshot image request processing stop" );
 
             if (!blk_queue_stopped( q )){
-                blk_sync_queue( q );
-
-                spin_lock_irqsave( q->queue_lock, flags );
-                blk_stop_queue( q );
-                spin_unlock_irqrestore( q->queue_lock, flags );
+                blk_sync_queue(q);
+#ifdef VEEAMSNAP_MQ_IO
+                blk_mq_stop_hw_queues(q);
+#else
+                {
+                    unsigned long flags;
+                    spin_lock_irqsave(q->queue_lock, flags);
+                    blk_stop_queue(q);
+                    spin_unlock_irqrestore(q->queue_lock, flags);
+                }
+#endif
             }
         }
 
@@ -762,7 +977,11 @@ int _snapimage_destroy( snapimage_t* image )
     }
     queue_sl_done( &image->rq_proc_queue );
 
-    bitmap_sync_clear( &g_snapimage_minors, MINOR( image->image_dev ) );
+    bitmap_sync_clear(&g_snapimage_minors, MINOR(image->image_dev));
+
+#ifdef SNAPIMAGE_TRACER
+    image_trace_done(image);
+#endif
 
     return SUCCESS;
 }
@@ -1053,6 +1272,9 @@ void snapimage_print_state( void )
         log_tr_format( "last write: sector %lld, count %lld",
             (long long int)image->last_write_sector, (long long int)image->last_write_size );
 
+#ifdef SNAPIMAGE_TRACER
+        //__image_trace_log(image);
+#endif
     }CONTAINER_FOREACH_END( SnapImages );
     up_read(&snap_image_destroy_lock);
 }

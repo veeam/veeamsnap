@@ -88,19 +88,19 @@ snapstore_device_t* _snapstore_device_get_by_snapstore_id( veeam_uuid_t* id )
 
 void _snapstore_device_destroy( snapstore_device_t* snapstore_device )
 {
-    if (snapstore_device->snapstore)
-        log_tr_uuid( "Destroying snapstore device ", (&snapstore_device->snapstore->id) );
+    log_tr("Destroy snapstore device");
 
     blk_descr_array_done( &snapstore_device->store_block_map );
 
-    if (snapstore_device->orig_blk_dev != NULL){
+    if (snapstore_device->orig_blk_dev != NULL)
         blk_dev_close( snapstore_device->orig_blk_dev );
-    }
 
 #ifdef SNAPDATA_ZEROED
     rangevector_done( &snapstore_device->zero_sectors );
 #endif
     if (snapstore_device->snapstore){
+        log_tr_uuid("Snapstore uuid ", (&snapstore_device->snapstore->id));
+
         snapstore_put( snapstore_device->snapstore );
         snapstore_device->snapstore = NULL;
     }
@@ -151,37 +151,47 @@ int snapstore_device_create( dev_t dev_id, snapstore_t* snapstore )
     snapstore_device->corrupted = false;
     atomic_set( &snapstore_device->req_failed_cnt, 0 );
 
-    do{
-        blk_descr_array_index_t blocks_count;
-        {
-            sector_t sect_cnt = blk_dev_get_capacity( snapstore_device->orig_blk_dev );
-            if (sect_cnt & SNAPSTORE_BLK_MASK)
-                sect_cnt += SNAPSTORE_BLK_SIZE;
-            blocks_count = (blk_descr_array_index_t)(sect_cnt >> SNAPSTORE_BLK_SHIFT);
-        }
-        res = blk_descr_array_init( &snapstore_device->store_block_map, 0, blocks_count );
-        if (res != SUCCESS){
-            log_err_format( "Unable to create snapstore device: failed to initialize block description array, %ld blocks needed", blocks_count );
-            break;
-        }
-        //init_rwsem( &snapstore_device->store_block_map_locker );
-        mutex_init( &snapstore_device->store_block_map_locker );
+    //init_rwsem( &snapstore_device->store_block_map_locker );
+    mutex_init(&snapstore_device->store_block_map_locker);
 
 #ifdef SNAPDATA_ZEROED
-        rangevector_init( &snapstore_device->zero_sectors, true );
+    rangevector_init(&snapstore_device->zero_sectors, true);
 #endif
 
-        snapstore_device->snapstore = snapstore_get( snapstore );
+    while (1){ //failover with snapstore block size increment
+        blk_descr_array_index_t blocks_count;
 
-        container_push_back( &SnapstoreDevices, &snapstore_device->content );
-        snapstore_device_get_resource( snapstore_device );
+        sector_t sect_cnt = blk_dev_get_capacity(snapstore_device->orig_blk_dev);
+        if (sect_cnt & SNAPSTORE_BLK_MASK)
+            sect_cnt += SNAPSTORE_BLK_SIZE;
+        blocks_count = (blk_descr_array_index_t)(sect_cnt >> SNAPSTORE_BLK_SHIFT);
 
-    } while (false);
+        res = blk_descr_array_init(&snapstore_device->store_block_map, 0, blocks_count);
+        if (res == SUCCESS)
+            break;
 
-    if (res != SUCCESS)
-        _snapstore_device_destroy( snapstore_device );
+        log_err_format("Failed to initialize block description array, %lu blocks needed", blocks_count);
 
-    return res;
+        res = inc_snapstore_block_size_pow();
+        if (res != SUCCESS){
+            log_err("Cannot increment block size");
+            break;
+        }
+
+        log_warn_format("Snapstore block size increased to %lld sectors", SNAPSTORE_BLK_SIZE);
+    }
+    if (res != SUCCESS){
+        log_err("Unable to create snapstore device");
+        _snapstore_device_destroy(snapstore_device);
+        return res;
+    }
+
+    snapstore_device->snapstore = snapstore_get(snapstore);
+
+    container_push_back(&SnapstoreDevices, &snapstore_device->content);
+    snapstore_device_get_resource(snapstore_device);
+
+    return SUCCESS;
 }
 
 bool _snapstore_device_is_block_stored( snapstore_device_t* snapstore_device, blk_descr_array_index_t block_index )
@@ -372,8 +382,6 @@ int snapstore_device_read( snapstore_device_t* snapstore_device, blk_redirect_bi
         blk_ofs_start += blk_ofs_count;
     }
 
-    _snapstore_device_descr_write_unlock( snapstore_device );
-
     if (res == SUCCESS){
         if (atomic64_read( &rq_endio->bio_endio_count ) > 0ll) //async direct access needed
             blk_dev_redirect_submit( rq_endio );
@@ -384,6 +392,7 @@ int snapstore_device_read( snapstore_device_t* snapstore_device, blk_redirect_bi
         log_err_d( "Failed to read from snapstore device. errno=", res );
         log_err_format( "Position %lld sector, length %lld sectors", rq_range.ofs, rq_range.cnt );
     }
+    _snapstore_device_descr_write_unlock(snapstore_device);
 
     return res;
 }
@@ -464,7 +473,7 @@ int snapstore_device_write( snapstore_device_t* snapstore_device, blk_redirect_b
     block_index_first = (blk_descr_array_index_t)(rq_range.ofs >> SNAPSTORE_BLK_SHIFT);
     block_index_last = (blk_descr_array_index_t)((rq_range.ofs + rq_range.cnt - 1) >> SNAPSTORE_BLK_SHIFT);
 
-
+    _snapstore_device_descr_write_lock(snapstore_device);
     for (block_index = block_index_first; block_index <= block_index_last; ++block_index){
         int status;
         blk_descr_unify_t* blk_descr = NULL;
@@ -511,7 +520,7 @@ int snapstore_device_write( snapstore_device_t* snapstore_device, blk_redirect_b
 
         snapstore_device_set_corrupted( snapstore_device, res );
     }
-
+    _snapstore_device_descr_write_unlock(snapstore_device);
     return res;
 }
 
