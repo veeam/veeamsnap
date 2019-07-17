@@ -51,11 +51,6 @@ int blk_descr_mem_pool_add( blk_descr_pool_t* pool, void* buffer )
     return SUCCESS;
 }
 
-blk_descr_mem_t* blk_descr_mem_pool_at( blk_descr_pool_t* pool, size_t index )
-{
-    return (blk_descr_mem_t*)blk_descr_pool_at( pool, sizeof( blk_descr_mem_t ), index );
-}
-
 blk_descr_mem_t* blk_descr_mem_pool_take( blk_descr_pool_t* pool )
 {
     return (blk_descr_mem_t*)blk_descr_pool_take( pool, sizeof( blk_descr_mem_t ) );

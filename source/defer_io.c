@@ -43,9 +43,9 @@ void _defer_io_finish( defer_io_t* defer_io, queue_sl_t* queue_in_progress )
             struct bio* _bio = orig_req->bio;
             orig_req->bio = NULL;
 
-            orig_req->make_rq_fn( orig_req->q, _bio );
+            bio_put(_bio); //bio_put should be before orig_req->make_rq_fn
 
-            bio_put(_bio);
+            orig_req->make_rq_fn( orig_req->q, _bio );
         }
         atomic64_inc( &defer_io->state_bios_processed );
         atomic64_add( (orig_req->sect.cnt), &defer_io->state_sectors_processed );

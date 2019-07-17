@@ -108,4 +108,6 @@ unsigned int get_fixflags(void);
 #define OS_RELEASE_SUSE
 #endif
 
+//#define SNAPIMAGE_TRACER
+
 #endif /* STDAFX_H_ */

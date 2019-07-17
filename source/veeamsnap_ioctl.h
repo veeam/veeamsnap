@@ -256,6 +256,28 @@ struct ioctl_collect_snapshotdata_location_complete_s{
 // debug and support
 #define IOCTL_PRINTSTATE _IO(VEEAM_SNAP, 0x80)
 
+#ifdef SNAPIMAGE_TRACER
+#define VEEAM_IMAGE   0x69730000  // 'iV' <-> "Vi"
+
+//////////////////////////////////////////////////////////////////////////
+// io control for snapshot image 
+typedef struct trace_record_s
+{
+    unsigned long long time;
+    unsigned long long sector_ofs;
+    unsigned int size;
+    int direction;
+}trace_record_t;
+
+struct ioctl_image_trace_read_s{
+    unsigned int capacity;
+    unsigned int count;
+    trace_record_t* records;
+};
+
+#define IOCTL_IMAGE_TRACE_READ _IOW(VEEAM_IMAGE, 0x81, struct ioctl_image_trace_read_s)
+
+#endif
 
 #pragma pack(pop)
 

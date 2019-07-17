@@ -382,8 +382,6 @@ int snapstore_device_read( snapstore_device_t* snapstore_device, blk_redirect_bi
         blk_ofs_start += blk_ofs_count;
     }
 
-    _snapstore_device_descr_write_unlock( snapstore_device );
-
     if (res == SUCCESS){
         if (atomic64_read( &rq_endio->bio_endio_count ) > 0ll) //async direct access needed
             blk_dev_redirect_submit( rq_endio );
@@ -394,6 +392,7 @@ int snapstore_device_read( snapstore_device_t* snapstore_device, blk_redirect_bi
         log_err_d( "Failed to read from snapstore device. errno=", res );
         log_err_format( "Position %lld sector, length %lld sectors", rq_range.ofs, rq_range.cnt );
     }
+    _snapstore_device_descr_write_unlock(snapstore_device);
 
     return res;
 }
@@ -474,7 +473,7 @@ int snapstore_device_write( snapstore_device_t* snapstore_device, blk_redirect_b
     block_index_first = (blk_descr_array_index_t)(rq_range.ofs >> SNAPSTORE_BLK_SHIFT);
     block_index_last = (blk_descr_array_index_t)((rq_range.ofs + rq_range.cnt - 1) >> SNAPSTORE_BLK_SHIFT);
 
-
+    _snapstore_device_descr_write_lock(snapstore_device);
     for (block_index = block_index_first; block_index <= block_index_last; ++block_index){
         int status;
         blk_descr_unify_t* blk_descr = NULL;
@@ -521,7 +520,7 @@ int snapstore_device_write( snapstore_device_t* snapstore_device, blk_redirect_b
 
         snapstore_device_set_corrupted( snapstore_device, res );
     }
-
+    _snapstore_device_descr_write_unlock(snapstore_device);
     return res;
 }
 

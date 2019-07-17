@@ -156,7 +156,9 @@ int __init veeamsnap_init(void)
     show_distrib_version("Ubuntu");
 #endif
 
-
+#ifdef SNAPIMAGE_TRACER
+    log_tr("Snapshot image tracing is available");
+#endif
 
     //btreefs_enum( );
 
