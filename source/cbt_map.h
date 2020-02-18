@@ -11,6 +11,7 @@ typedef struct cbt_map_s
     spinlock_t locker;
 
     size_t   sect_in_block_degree;
+    sector_t device_capacity;
     size_t   map_size;
 
     page_array_t*  read_map;
@@ -23,9 +24,13 @@ typedef struct cbt_map_s
     volatile bool active;
 
     struct rw_semaphore rw_lock;
+
+    sector_t state_changed_sectors;
+    sector_t state_dirty_sectors;
+    
 }cbt_map_t;
 
-cbt_map_t* cbt_map_create( unsigned int cbt_sect_in_block_degree, sector_t blk_dev_sect_count );
+cbt_map_t* cbt_map_create(unsigned int cbt_sect_in_block_degree, sector_t device_capacity);
 void cbt_map_destroy( cbt_map_t* cbt_map );
 
 void cbt_map_switch( cbt_map_t* cbt_map );
@@ -65,3 +70,5 @@ static inline void cbt_map_write_unlock( cbt_map_t* cbt_map )
 {
     up_write( &cbt_map->rw_lock );
 };
+
+void cbt_print_state(cbt_map_t* cbt_map);

@@ -37,15 +37,17 @@ void cbt_map_destroy_cb( void* this_resource )
     cbt_map_destroy( cbt_map );
 }
 
-int cbt_map_allocate( cbt_map_t* cbt_map, unsigned int cbt_sect_in_block_degree, sector_t blk_dev_sect_count )
+int cbt_map_allocate( cbt_map_t* cbt_map, unsigned int cbt_sect_in_block_degree, sector_t device_capacity )
 {
     size_t page_cnt;
     sector_t size_mod;
     cbt_map->sect_in_block_degree = cbt_sect_in_block_degree;
+    cbt_map->device_capacity = device_capacity;
+    cbt_map->map_size = (device_capacity >> (sector_t)cbt_sect_in_block_degree);
 
-    cbt_map->map_size = (blk_dev_sect_count >> (sector_t)cbt_sect_in_block_degree);
+    log_tr_sz("Allocate CBT map of ", cbt_map->map_size);
 
-    size_mod = (blk_dev_sect_count & ((sector_t)(1 << cbt_sect_in_block_degree) - 1));
+    size_mod = (device_capacity & ((sector_t)(1 << cbt_sect_in_block_degree) - 1));
     if (size_mod)
         cbt_map->map_size++;
 
@@ -72,6 +74,9 @@ int cbt_map_allocate( cbt_map_t* cbt_map, unsigned int cbt_sect_in_block_degree,
     veeam_generate_random_uuid( cbt_map->generationId.b );
     cbt_map->active = true;
     
+    cbt_map->state_changed_sectors = 0;
+    cbt_map->state_dirty_sectors = 0;
+
     return SUCCESS;
 }
 
@@ -90,7 +95,7 @@ void cbt_map_deallocate( cbt_map_t* cbt_map )
     cbt_map->active = false;
 }
 
-cbt_map_t* cbt_map_create( unsigned int cbt_sect_in_block_degree, sector_t blk_dev_sect_count )
+cbt_map_t* cbt_map_create( unsigned int cbt_sect_in_block_degree, sector_t device_capacity )
 {
     cbt_map_t* cbt_map = NULL;
 
@@ -100,7 +105,7 @@ cbt_map_t* cbt_map_create( unsigned int cbt_sect_in_block_degree, sector_t blk_d
     if (cbt_map == NULL)
         return NULL;
 
-    if (SUCCESS == cbt_map_allocate( cbt_map, cbt_sect_in_block_degree, blk_dev_sect_count )){
+    if (SUCCESS == cbt_map_allocate( cbt_map, cbt_sect_in_block_degree, device_capacity )){
         _cbt_map_init_lock( cbt_map );
 
         init_rwsem( &cbt_map->rw_lock );
@@ -108,9 +113,10 @@ cbt_map_t* cbt_map_create( unsigned int cbt_sect_in_block_degree, sector_t blk_d
         shared_resource_init( &cbt_map->sharing_header, cbt_map, cbt_map_destroy_cb );
         return cbt_map;
     }
-
-    cbt_map_destroy( cbt_map );
-    return NULL;
+    else{
+        cbt_map_destroy(cbt_map);
+        return NULL;
+    }
 }
 
 void cbt_map_destroy( cbt_map_t* cbt_map )
@@ -181,6 +187,8 @@ int cbt_map_set( cbt_map_t* cbt_map, sector_t sector_start, sector_t sector_cnt 
         byte_t snap_number = (byte_t)cbt_map->snap_number_active;
 
         res = _cbt_map_set( cbt_map, sector_start, sector_cnt, snap_number, _get_writable( cbt_map ) );
+
+        cbt_map->state_changed_sectors += sector_cnt;
     }
     _cbt_map_unlock( cbt_map );
     return res;
@@ -194,6 +202,8 @@ int cbt_map_set_both( cbt_map_t* cbt_map, sector_t sector_start, sector_t sector
         res = _cbt_map_set(cbt_map, sector_start, sector_cnt, (byte_t)cbt_map->snap_number_active, _get_writable(cbt_map));
         if (res == SUCCESS)
             res = _cbt_map_set(cbt_map, sector_start, sector_cnt, (byte_t)cbt_map->snap_number_previous, _get_readable(cbt_map));
+
+        cbt_map->state_dirty_sectors += sector_cnt;
     }
     _cbt_map_unlock( cbt_map );
     return res;
@@ -202,24 +212,38 @@ int cbt_map_set_both( cbt_map_t* cbt_map, sector_t sector_start, sector_t sector
 size_t cbt_map_read_to_user( cbt_map_t* cbt_map, void __user* user_buff, size_t offset, size_t size )
 {
     size_t readed = 0;
-    do{
-        size_t real_size = min( (cbt_map->map_size - offset), size );
+    size_t left_size;
+    size_t real_size = min((cbt_map->map_size - offset), size);
 
-        size_t left_size;
-
-        {
-            page_array_t* map = _get_readable( cbt_map );
-            left_size = real_size - page_array_page2user( user_buff, offset, map, real_size );
-        }
-
-        if (left_size == 0)
-            readed = real_size;
-        else{
-            log_err_format( "Not all CBT data was read. Left [%ld] bytes", left_size );
-            readed = real_size - left_size;
-        }
-    } while (false);
+    left_size = real_size - page_array_page2user(user_buff, offset, _get_readable(cbt_map), real_size);
+    if (left_size == 0)
+        readed = real_size;
+    else{
+        log_err_format("Not all CBT data was read. Left [%ld] bytes", left_size);
+        readed = real_size - left_size;
+    }
 
     return readed;
 }
 
+void cbt_print_state(cbt_map_t* cbt_map)
+{
+    log_tr("");
+    log_tr("CBT map state:");
+    
+    log_tr_sz("sect_in_block_degree=", cbt_map->sect_in_block_degree);
+    log_tr_sect("device_capacity=", cbt_map->device_capacity);
+    log_tr_sz("map_size=", cbt_map->map_size);
+
+    log_tr_ld("snap_number_active=", cbt_map->snap_number_active);
+    log_tr_ld("snap_number_previous=", cbt_map->snap_number_previous);
+    log_tr_uuid("generationId=", &cbt_map->generationId);
+
+    if (cbt_map->active)
+        log_tr("is active");
+    else
+        log_tr("is NOT active");
+
+    log_tr_sect("changed sectors=", cbt_map->state_changed_sectors);
+    log_tr_sect("dirty sectors=", cbt_map->state_dirty_sectors);
+}

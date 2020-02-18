@@ -83,7 +83,10 @@ void _blk_dev_direct_bio_free( struct bio* bio )
 struct bio* _blk_dev_direct_bio_alloc( int nr_iovecs )
 {
     struct bio* new_bio = bio_alloc_bioset( GFP_NOIO, nr_iovecs, BlkDirectBioset );
-    if (new_bio){
+    if (new_bio == NULL)
+        return NULL;
+
+    {
         blk_direct_bio_complete_t* bio_compl = (blk_direct_bio_complete_t*)((void*)new_bio - sizeof( blk_direct_bio_complete_t ));
         bio_compl->error = -EINVAL;
         init_completion( &bio_compl->event );
@@ -119,7 +122,7 @@ int _dev_direct_submit_pages(
 #ifdef BIO_MAX_SECTORS
         size_sector = min_t( sector_t, size_sector, BIO_MAX_SECTORS );
 #else
-        size_sector = min_t( sector_t, size_sector, (BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR512_SHIFT)) );
+        size_sector = min_t( sector_t, size_sector, (BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT)) );
 #endif
 
     }
@@ -224,10 +227,11 @@ struct block_device* blkdev,
 int blk_direct_submit_page( struct block_device* blkdev, int direction, sector_t ofs_sect, struct page* pg )
 {
     int res = -EIO;
-    struct bio *bb = NULL;
+
     blk_direct_bio_complete_t* bio_compl = NULL;
 
-    while (NULL == (bb = _blk_dev_direct_bio_alloc( 1 ))){
+    struct bio *bb = _blk_dev_direct_bio_alloc(1);
+    if (bb == NULL){
         log_err( "Failed to allocate bio for direct IO." );
         return -ENOMEM;
     }
@@ -244,8 +248,16 @@ int blk_direct_submit_page( struct block_device* blkdev, int direction, sector_t
 #else
     if (direction == READ)
         bio_set_op_attrs( bb, REQ_OP_READ, 0 );
-    else
-        bio_set_op_attrs( bb, REQ_OP_WRITE, 0 );
+    else if (direction == WRITE)
+        bio_set_op_attrs(bb, REQ_OP_WRITE, 0);
+    else if (direction == READ_SYNC)
+        bio_set_op_attrs(bb, REQ_OP_READ, REQ_SYNC);
+    else if (direction == WRITE_SYNC)
+        bio_set_op_attrs(bb, REQ_OP_WRITE, REQ_SYNC );
+    else{
+        log_err("Invalid direction parameter");
+        return -EINVAL;
+    }
 #endif
     bio_bi_sector( bb ) = ofs_sect;
 

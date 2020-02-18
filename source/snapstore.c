@@ -96,7 +96,7 @@ int snapstore_create( veeam_uuid_t* id, dev_t snapstore_dev_id, dev_t* dev_id_se
     snapstore->file = NULL;
 
     snapstore->ctrl_pipe = NULL;
-    snapstore->empty_limit = (sector_t)(64 * (1024 * 1024 / SECTOR512)); //by default value
+    snapstore->empty_limit = (sector_t)(64 * (1024 * 1024 / SECTOR_SIZE)); //by default value
     snapstore->halffilled = false;
     snapstore->overflowed = false;
 
@@ -165,7 +165,7 @@ int snapstore_create_multidev(veeam_uuid_t* id, dev_t* dev_id_set, size_t dev_id
     snapstore->multidev = NULL;
 
     snapstore->ctrl_pipe = NULL;
-    snapstore->empty_limit = (sector_t)(64 * (1024 * 1024 / SECTOR512)); //by default value
+    snapstore->empty_limit = (sector_t)(64 * (1024 * 1024 / SECTOR_SIZE)); //by default value
     snapstore->halffilled = false;
     snapstore->overflowed = false;
 
@@ -276,7 +276,7 @@ int snapstore_add_memory( veeam_uuid_t* id, unsigned long long sz )
     }
 
     {
-        size_t available_blocks = (size_t)(sz >> (SNAPSTORE_BLK_SHIFT + SECTOR512_SHIFT));
+        size_t available_blocks = (size_t)(sz >> (SNAPSTORE_BLK_SHIFT + SECTOR_SHIFT));
         size_t current_block = 0;
 
         snapstore->mem = snapstore_mem_create( available_blocks );

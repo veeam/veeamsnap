@@ -20,7 +20,13 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 	blk_redirect.o \
 	blk_deferred.o \
 	defer_io.o \
+	cbt_storage.o \
 	cbt_map.o \
+	cbt_notify.o \
+	cbt_params.o \
+	cbt_persistent.o \
+	cbt_checkfs.o \
+	ext4_check.o \
 	tracker.o \
 	tracker_queue.o \
 	snapimage.o \
@@ -39,6 +45,8 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 	tracking.o \
 	ctrl_fops.o \
 	ctrl_pipe.o \
+	ctrl_sysfs.o \
+	enum_block.o \
 	veeamsnap_main.o
 
 obj-m := $(KERNEL_MODULE_NAME).o
@@ -47,6 +55,21 @@ ccflags-y := -O2 -Wno-multichar
 SHELL:=/bin/bash 
 ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; val="DISTRIB_NAME.$$ID"; echo "-D"$${val//[.-]/_} | awk '{print toupper($$0)}' ; fi )
 ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; awk '{ n=split($$0,v,"."); for (i=0; ++i<=n;) print "-DDISTRIB_VERSION_"i"="v[i] }' <<< $$VERSION_ID ; fi )
+
+# try to find kernel headers files
+include_linux = "."
+ifeq ($(shell test -e "/lib/modules/$(shell uname -r)/build/include/linux" && echo -n yes),yes) 
+include_linux = /lib/modules/$(shell uname -r)/build/include/linux
+endif
+ifeq ($(shell test -e "/lib/modules/$(shell uname -r)/source/include/linux" && echo -n yes),yes) 
+include_linux = /lib/modules/$(shell uname -r)/source/include/linux
+endif
+
+# try to find patch for lookup_bdev 
+# https://patchwork.kernel.org/patch/7748091/ 
+ifeq ($(shell test -e $(include_linux)/fs.h && echo -n yes),yes) 
+ccflags-y += $(shell if [[ 0 -ne $(shell cat $(include_linux)/fs.h | grep 'lookup_bdev' | grep -c 'mask' ) ]]; then echo "-DLOOKUP_BDEV_MASK"; fi )
+endif 
 
 all:
 	@echo Making all...
@@ -73,4 +96,4 @@ load:
 unload:
 	@echo Unloading $(KERNEL_MODULE_NAME) kernel module
 	@echo $(shell rmmod $(KERNEL_MODULE_NAME); rm -f /dev/$(KERNEL_MODULE_NAME))
-
+	$(shell rmmod $(KERNEL_MODULE_NAME))

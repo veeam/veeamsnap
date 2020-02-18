@@ -134,7 +134,7 @@ void bio_endio_list_cleanup( blk_redirect_bio_endio_list_t* curr )
     }
 }
 
-int _blk_dev_redirect_part_read_fast( blk_redirect_bio_endio_t* rq_endio, int direction, struct block_device*  blk_dev, sector_t target_pos, sector_t rq_ofs, sector_t rq_count )
+int _blk_dev_redirect_part_fast( blk_redirect_bio_endio_t* rq_endio, int direction, struct block_device*  blk_dev, sector_t target_pos, sector_t rq_ofs, sector_t rq_count )
 {
     __label__ __fail_out;
     __label__ __reprocess_bv;
@@ -162,12 +162,12 @@ int _blk_dev_redirect_part_read_fast( blk_redirect_bio_endio_t* rq_endio, int di
 #ifdef BIO_MAX_SECTORS
         max_sect = BIO_MAX_SECTORS;
 #else
-        max_sect = BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR512_SHIFT);
+        max_sect = BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT);
 #endif
         max_sect = min( max_sect, q->limits.max_sectors );
     }
 
-    nr_iovecs = max_sect >> (PAGE_SHIFT - SECTOR512_SHIFT);
+    nr_iovecs = max_sect >> (PAGE_SHIFT - SECTOR_SHIFT);
 
     bio_for_each_segment( bvec, rq_endio->bio, iter ){
         sector_t bvec_ofs;
@@ -279,125 +279,18 @@ __fail_out:
     return res;
 }
 
-int _blk_dev_redirect_part_read_sync( blk_redirect_bio_endio_t* rq_endio, int direction, struct block_device*  blk_dev, sector_t target_pos, sector_t rq_ofs, sector_t rq_count )
-{
-    int result = SUCCESS;
-    sector_t target_pos_ordered;
-    sector_t rq_ofs_ordered;
-    size_t page_count;
-    page_array_t* arr = NULL;
-
-    struct request_queue *q = bdev_get_queue( blk_dev );
-    sector_t logical_block_size_mask = (sector_t)((q->limits.logical_block_size >> SECTOR512_SHIFT) - 1);
-
-    log_err_s( "Called ", __FUNCTION__ );
-
-    log_err_sect( "target_pos= ", target_pos );
-    log_err_sect( "rq_ofs= ", rq_ofs );
-    log_err_sect( "rq_count= ", rq_count );
-
-    target_pos_ordered = target_pos & ~logical_block_size_mask;
-    rq_ofs_ordered = rq_ofs & ~logical_block_size_mask;
-    //rq_count_ordered = rq_count & ~logical_block_size_mask;
-
-    page_count = page_count_calc_sectors( target_pos, rq_count );
-    log_err_sz( "page_count= ", page_count );
-
-    arr = page_array_alloc( page_count, GFP_NOIO );
-    if (NULL == arr){
-        log_err_sz( "Failed to allocate page buffer. Page count=", page_count );
-        return -ENOMEM;
-    }
-    do{
-        sector_t read_len;
-        //log_err_sect( "target_pos_ordered= ", target_pos_ordered );
-        //log_err_sect( "count= ", (sector_t)(page_count << (PAGE_SHIFT - SECTOR512_SHIFT)) );
-        read_len = (sector_t)(page_count << (PAGE_SHIFT - SECTOR512_SHIFT));
-        if (read_len != blk_direct_submit_pages( blk_dev, direction, 0, arr, target_pos_ordered, read_len )){
-            log_err_sect( "Failed to read from offset: ", target_pos_ordered );
-            result = -EIO;
-            break;
-        }
-
-        {//copy data from pages array to request bio
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,14,0)
-            struct bio_vec* bvec;
-            unsigned short iter;
-#else
-            struct bio_vec bvec;
-            struct bvec_iter iter;
-#endif
-            sector_t sect_ofs = 0;
-            sector_t processed_sectors = 0;
-            size_t arr_ofs = (target_pos - target_pos_ordered) << SECTOR512_SHIFT;
-
-            bio_for_each_segment( bvec, rq_endio->bio, iter ){
-                sector_t bvec_ofs;
-                sector_t bvec_sectors;
-
-                if ((sect_ofs + bio_vec_sectors( bvec )) <= rq_ofs){
-                    sect_ofs += bio_vec_sectors( bvec );
-                    continue;
-                }
-                if (sect_ofs >= (rq_ofs + rq_count))
-                    break;
-
-                bvec_ofs = 0;
-                if (sect_ofs < rq_ofs)
-                    bvec_ofs = rq_ofs - sect_ofs;
-
-                bvec_sectors = bio_vec_sectors( bvec ) - bvec_ofs;
-                if (bvec_sectors >( rq_count - processed_sectors ))
-                    bvec_sectors = rq_count - processed_sectors;
-
-                {
-                    void* mem = mem_kmap_atomic( bio_vec_page( bvec ) );
-
-                    log_err_sz( "bio page offset= ", (bio_vec_offset( bvec ) + sector_to_uint( bvec_ofs )) );
-                    log_err_sect( "arr_ofs= ", arr_ofs );
-                    log_err_sz( "len= ", sector_to_uint( bvec_sectors ) );
-                    if (direction == READ){
-                        memcpy(
-                            mem + bio_vec_offset( bvec ) + sector_to_uint( bvec_ofs ),
-                            page_get_sector( arr, (arr_ofs >> SECTOR512_SHIFT) ),
-                            sector_to_uint( bvec_sectors ) );
-                    }
-                    if (direction == WRITE){
-                        memcpy(
-                            page_get_sector( arr, (arr_ofs >> SECTOR512_SHIFT) ),
-                            mem + bio_vec_offset( bvec ) + sector_to_uint( bvec_ofs ),
-                            sector_to_uint( bvec_sectors ) );
-                    }
-                    mem_kunmap_atomic( mem );
-                }
-                arr_ofs = sector_to_uint( bvec_sectors );
-                processed_sectors += bvec_sectors;
-                sect_ofs += bio_vec_sectors( bvec );
-            }
-        }
-    } while (false);
-    page_array_free( arr );
-
-    return result;
-}
-
 int blk_dev_redirect_part( blk_redirect_bio_endio_t* rq_endio, int direction, struct block_device* blk_dev, sector_t target_pos, sector_t rq_ofs, sector_t rq_count )
 {
     struct request_queue *q = bdev_get_queue( blk_dev );
-    sector_t logical_block_size_mask = (sector_t)((q->limits.logical_block_size >> SECTOR512_SHIFT) - 1);
-
-    //log_err_sect( "target_pos= ", target_pos );
-    //log_err_sect( "rq_ofs= ", rq_ofs );
-    //log_err_sect( "rq_count= ", rq_count );
-    //log_err_sect( "logical_block_size_mask= ", logical_block_size_mask );
+    sector_t logical_block_size_mask = (sector_t)((q->limits.logical_block_size >> SECTOR_SHIFT) - 1);
 
     if (likely( logical_block_size_mask == 0 ))
-        return _blk_dev_redirect_part_read_fast( rq_endio, direction, blk_dev, target_pos, rq_ofs, rq_count );
+        return _blk_dev_redirect_part_fast( rq_endio, direction, blk_dev, target_pos, rq_ofs, rq_count );
 
     if (likely( (0 == (target_pos & logical_block_size_mask)) && (0 == (rq_count & logical_block_size_mask)) ))
-        return _blk_dev_redirect_part_read_fast( rq_endio, direction, blk_dev, target_pos, rq_ofs, rq_count );
+        return _blk_dev_redirect_part_fast( rq_endio, direction, blk_dev, target_pos, rq_ofs, rq_count );
 
-    return _blk_dev_redirect_part_read_sync( rq_endio, direction, blk_dev, target_pos, rq_ofs, rq_count );
+    return -EFAULT;
 }
 
 

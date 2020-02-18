@@ -114,7 +114,8 @@ int rangevector_at( rangevector_t* rangevector, size_t inx, range_t* range )
     RANGEVECTOR_FOREACH_EL_BEGIN( rangevector, el )
     {
         size_t el_cnt = atomic_read( &el->cnt );
-        if ((curr_inx + el_cnt) < inx){
+
+        if ((curr_inx <= inx) &&  (inx < (curr_inx + el_cnt))){
             range->ofs = el->ranges[inx - curr_inx].ofs;
             range->cnt = el->ranges[inx - curr_inx].cnt;
             result = SUCCESS;

@@ -15,6 +15,7 @@
 #include "tracker.h"
 #include "page_array.h"
 #include "blk_deferred.h"
+#include "enum_block.h"
 
 #define SECTION "ctrl_fops "
 #include "log_format.h"
@@ -334,7 +335,7 @@ int ioctl_snapshot_create( unsigned long arg )
         for (inx = 0; inx < param.count; ++inx)
             p_dev[inx] = MKDEV( pk_dev_id[inx].major, pk_dev_id[inx].minor );
 
-        status = snapshot_Create( p_dev, param.count, CBT_BLOCK_SIZE, &param.snapshot_id );
+        status = snapshot_Create(p_dev, param.count, CBT_BLOCK_SIZE_DEGREE, &param.snapshot_id);
 
         dbg_kfree( p_dev );
         p_dev = NULL;
@@ -694,6 +695,7 @@ int ioctl_printstate( unsigned long arg )
     tracker_print_state( );
     page_arrays_print_state( );
     blk_deferred_print_state( );
+    enum_block_print_state();
     log_tr( "--------------------------------------------------------------------------" );
 
     return SUCCESS;

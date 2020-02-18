@@ -236,7 +236,7 @@ sector_t _blk_deferred_submit_pages(
 
     struct bio *bio = NULL;
     int nr_iovecs;
-    int page_inx = arr_ofs >> (PAGE_SHIFT - SECTOR512_SHIFT);
+    int page_inx = arr_ofs >> (PAGE_SHIFT - SECTOR_SHIFT);
     sector_t process_sect = 0;
 
     nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
@@ -339,7 +339,7 @@ void blk_deferred_memcpy_read( char* databuff, blk_deferred_request_t* dio_req, 
 {
     sector_t sect_inx;
     for (sect_inx = 0; sect_inx < size_sector; ++sect_inx){
-        memcpy( page_get_sector( arr, sect_inx + arr_ofs ), databuff + (sect_inx<<SECTOR512_SHIFT), SECTOR512 );
+        memcpy( page_get_sector( arr, sect_inx + arr_ofs ), databuff + (sect_inx<<SECTOR_SHIFT), SECTOR_SIZE );
     }
     blk_deferred_complete( dio_req, size_sector, SUCCESS );
 }
@@ -669,8 +669,8 @@ int blk_deffered_request_store_mem( blk_deferred_request_t* dio_copy_req )
 #endif
             blk_descr_mem_t* blk_descr = (blk_descr_mem_t*)dio->blk_descr;
 
-            size_t portion = page_array_pages2mem( blk_descr->buff, 0, dio->buff, (SNAPSTORE_BLK_SIZE * SECTOR512) );
-            if (unlikely( portion != (SNAPSTORE_BLK_SIZE * SECTOR512) )){
+            size_t portion = page_array_pages2mem( blk_descr->buff, 0, dio->buff, (SNAPSTORE_BLK_SIZE * SECTOR_SIZE) );
+            if (unlikely( portion != (SNAPSTORE_BLK_SIZE * SECTOR_SIZE) )){
                 res = -EIO;
                 break;
             }

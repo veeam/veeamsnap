@@ -7,6 +7,7 @@
 #include "blk_util.h"
 #include "blk_direct.h"
 #include "defer_io.h"
+#include "cbt_persistent.h"
 
 #define SECTION "tracking  "
 #include "log_format.h"
@@ -127,7 +128,6 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 #endif
 }
 
-
 int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long long snapshot_id)
 {
     int result = SUCCESS;
@@ -143,8 +143,17 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
             tracker_snapshot_id_set(tracker, snapshot_id);
 
         if (NULL == tracker->cbt_map){
-            tracker_cbt_start(tracker, snapshot_id, cbt_block_size_degree, blk_dev_get_capacity(tracker->target_dev));
-            result = -EALREADY;
+            cbt_map_t* cbt_map = cbt_map_create((cbt_block_size_degree-SECTOR_SHIFT), blk_dev_get_capacity(tracker->target_dev));
+            if (cbt_map == NULL){
+                result = -ENOMEM;
+            }
+            else{
+                tracker_cbt_start(tracker, snapshot_id, cbt_map);
+#ifdef PERSISTENT_CBT
+                cbt_persistent_register(tracker->original_dev_id, tracker->cbt_map);                
+#endif
+                result = -EALREADY;
+            }
         }
         else{
             bool reset_needed = false;
@@ -153,7 +162,7 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
                 log_warn( "Nonactive CBT table detected. CBT fault" );
             }
 
-            if (tracker->device_capacity != blk_dev_get_capacity( tracker->target_dev )){
+            if (tracker->cbt_map->device_capacity != blk_dev_get_capacity( tracker->target_dev )){
                 reset_needed = true;
                 log_warn( "Device resize detected. CBT fault" );
             }
@@ -165,7 +174,7 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
                     log_err_d( "Failed to remove tracker. errno=", result );
                 }
                 else{
-                    result = tracker_create(snapshot_id, dev_id, cbt_block_size_degree, &tracker);
+                    result = tracker_create(snapshot_id, dev_id, cbt_block_size_degree, NULL, &tracker);
                     if (SUCCESS != result){
                         log_err_d( "Failed to create tracker. errno=", result );
                     }
@@ -206,9 +215,29 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
                 }
             }
 
-            result = tracker_create(snapshot_id, dev_id, cbt_block_size_degree, &tracker);
+            result = tracker_create(snapshot_id, dev_id, cbt_block_size_degree, NULL, &tracker);
             if (SUCCESS != result)
                 log_err_d("Failed to create tracker. errno=", result);
+            else
+            {
+                char dev_name[BDEVNAME_SIZE + 1];
+                memset(dev_name, 0, BDEVNAME_SIZE + 1);
+                if (bdevname(target_dev, dev_name))
+                    log_tr_s("Add to tracking device ", dev_name);
+/*
+                if (target_dev->bd_part && target_dev->bd_part->info){
+                    if (target_dev->bd_part->info->uuid)
+                        log_tr_s("partition uuid: ", target_dev->bd_part->info->uuid);
+                    if (target_dev->bd_part->info->volname)
+                        log_tr_s("volume name: ", target_dev->bd_part->info->volname);
+                }
+*/
+                if (target_dev->bd_super){
+                    log_tr_s("fs id: ", target_dev->bd_super->s_id);
+                }
+                else
+                    log_tr("fs not found");
+            }
         } while (false);
 
         if (target_dev)
@@ -248,6 +277,10 @@ int tracking_remove( dev_t dev_id )
     else
         log_err_format( "Unable to remove device [%d:%d] from tracking: invalid trackers container. errno=",
             MAJOR( dev_id ), MINOR( dev_id ), result );
+
+#ifdef PERSISTENT_CBT
+    cbt_persistent_unregister(dev_id);
+#endif
 
     return result;
 }

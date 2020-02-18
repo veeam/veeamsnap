@@ -237,8 +237,8 @@ void* page_get_element( page_array_t* arr, size_t index, size_t sizeof_element )
 
 char* page_get_sector( page_array_t* arr, sector_t arr_ofs )
 {
-    size_t pg_inx = arr_ofs >> (PAGE_SHIFT - SECTOR512_SHIFT);
-    size_t pg_ofs = sector_to_size( arr_ofs & ((1 << (PAGE_SHIFT - SECTOR512_SHIFT)) - 1) );
+    size_t pg_inx = arr_ofs >> (PAGE_SHIFT - SECTOR_SHIFT);
+    size_t pg_ofs = sector_to_size( arr_ofs & ((1 << (PAGE_SHIFT - SECTOR_SHIFT)) - 1) );
 
     return (arr->pg[pg_inx].addr + pg_ofs);
 }
@@ -357,9 +357,13 @@ int page_array_bit_set( page_array_t* arr, size_t inx, bool value )
 
         v = ptr[byte_pos];
         if (value){
+            if (unlikely(v & (1 << bit_inx)))
+                return -EALREADY;
             v |= (1 << bit_inx);
         }
         else{
+            if (unlikely(0 == (v & (1 << bit_inx))))
+                return -EALREADY;
             v &= ~(1 << bit_inx);
         }
 
