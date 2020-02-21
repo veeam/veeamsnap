@@ -20,11 +20,17 @@ typedef struct snapdata_collector_s
     sparse_bitmap_t changes_sparse;
 #else
     page_array_t* changes;
-    stream_size_t start_index;
-    stream_size_t length;
+    sector_t start_index;
+    sector_t length;
 #endif
     stream_size_t collected_size;
-    stream_size_t in_bitmap_size;
+    stream_size_t already_set_size;
+    /*
+    sector_t collected_begin;
+    sector_t collected_end;
+    sector_t already_set_begin;
+    sector_t already_set_end;
+    */
     int fail_code;
 
     struct mutex locker;

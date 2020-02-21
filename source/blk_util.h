@@ -66,7 +66,7 @@ static __inline void blk_bio_end( struct bio *bio, int err )
 #define bio_vec_offset(bv)  bv->bv_offset
 #define bio_vec_len(bv)     bv->bv_len
 #define bio_vec_buffer(bv)  (page_address( bv->bv_page ) + bv->bv_offset)
-#define bio_vec_sectors(bv) (bv->bv_len>>SECTOR512_SHIFT)
+#define bio_vec_sectors(bv) (bv->bv_len>>SECTOR_SHIFT)
 
 #define bio_bi_sector(bio)  bio->bi_sector
 #define bio_bi_size(bio)    bio->bi_size
@@ -77,7 +77,7 @@ static __inline void blk_bio_end( struct bio *bio, int err )
 #define bio_vec_offset(bv)  bv.bv_offset
 #define bio_vec_len(bv)     bv.bv_len
 #define bio_vec_buffer(bv)  (page_address( bv.bv_page ) + bv.bv_offset)
-#define bio_vec_sectors(bv) (bv.bv_len>>SECTOR512_SHIFT)
+#define bio_vec_sectors(bv) (bv.bv_len>>SECTOR_SHIFT)
 
 #define bio_bi_sector(bio)  bio->bi_iter.bi_sector
 #define bio_bi_size(bio)    bio->bi_iter.bi_size
@@ -97,7 +97,7 @@ sector_t blk_bio_io_vec_sectors( struct bio* bio )
     struct bvec_iter iter;
 #endif
     bio_for_each_segment( bvec, bio, iter ){
-        sect_cnt += ( bio_vec_len( bvec ) >> SECTOR512_SHIFT );
+        sect_cnt += ( bio_vec_len( bvec ) >> SECTOR_SHIFT );
     }
     return sect_cnt;
 }

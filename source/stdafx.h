@@ -49,9 +49,14 @@
 #define MODULE_NAME "veeamsnap"
 #define VEEAM_SNAP_IMAGE "veeamimage"
 
-#define SECTOR512    512
-#define SECTOR512_SHIFT 9
-#define SECTORS_IN_PAGE (PAGE_SIZE / SECTOR512)
+#ifndef SECTOR_SHIFT
+#define SECTOR_SHIFT 9
+#endif
+#ifndef SECTOR_SIZE
+#define SECTOR_SIZE (1 << SECTOR_SHIFT)
+#endif
+
+#define SECTORS_IN_PAGE (PAGE_SIZE / SECTOR_SIZE)
 
 #define SUCCESS 0
 
@@ -65,7 +70,7 @@ typedef unsigned long long stream_size_t;
 
 #define DEFER_IO_COPY_REQUEST_LENGTH 10
 #define DEFER_IO_DIO_REQUEST_LENGTH 250
-#define DEFER_IO_DIO_REQUEST_SECTORS_COUNT (10*1024*1024/SECTOR512)
+#define DEFER_IO_DIO_REQUEST_SECTORS_COUNT (10*1024*1024/SECTOR_SIZE)
 
 //#define VEEAMIMAGE_THROTTLE_TIMEOUT ( 30*HZ )    //delay 30 sec
 //#define VEEAMIMAGE_THROTTLE_TIMEOUT ( 3*HZ )    //delay 3 sec
@@ -96,7 +101,7 @@ unsigned int get_fixflags(void);
 #define COW_BLOCK_SIZE_DEGREE get_snapstore_block_size_pow()
 #define COW_BLOCK_SIZE (1<<COW_BLOCK_SIZE_DEGREE)
 
-#define SNAPSTORE_BLK_SHIFT (sector_t)(COW_BLOCK_SIZE_DEGREE - SECTOR512_SHIFT)
+#define SNAPSTORE_BLK_SHIFT (sector_t)(COW_BLOCK_SIZE_DEGREE - SECTOR_SHIFT)
 #define SNAPSTORE_BLK_SIZE  (sector_t)(1 << SNAPSTORE_BLK_SHIFT)
 #define SNAPSTORE_BLK_MASK  (sector_t)(SNAPSTORE_BLK_SIZE-1)
 
@@ -107,6 +112,19 @@ unsigned int get_fixflags(void);
 #if defined(DISTRIB_NAME_OPENSUSE_LEAP) || defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_SLES) || defined(DISTRIB_NAME_SLES_SAP)
 #define OS_RELEASE_SUSE
 #endif
+
+#define PERSISTENT_CBT
+
+//#define DEBUG_CBT_LOAD 0x5A5A3CE1 // only for debugging
+
+////Persistent CBT is not supported for SLES 11
+// #if defined(DISTRIB_NAME_SLES) && defined(DISTRIB_VERSION_1)
+// #if DISTRIB_VERSION_1 == 11
+// #undef PERSISTENT_CBT
+// #endif
+// #endif
+
+//#define VEEAMSNAP_SYSFS_PARAMS
 
 //#define SNAPIMAGE_TRACER
 

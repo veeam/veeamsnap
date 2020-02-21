@@ -3,10 +3,10 @@
 
 // these values are sed'ed so they may be empty
 
-#define FILEVER_MAJOR 3
+#define FILEVER_MAJOR 4
 #define FILEVER_MINOR 0
-#define FILEVER_REVISION 2
-#define FILEVER_BUILD 1185
+#define FILEVER_REVISION 0
+#define FILEVER_BUILD 1961
 
 #if (FILEVER_MAJOR+0) == 0
 #undef FILEVER_MAJOR

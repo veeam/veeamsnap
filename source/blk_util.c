@@ -24,7 +24,7 @@ int blk_dev_open( dev_t dev_id, struct block_device** p_blk_dev )
     refCount = blkdev_get( blk_dev, FMODE_READ | FMODE_WRITE, NULL );
 #endif
     if (refCount < 0){
-        log_err_format( "Unable to open device [%d,%d]: blkdev_get returned errno=%d", MAJOR( dev_id ), MINOR( dev_id ), 0 - refCount );
+        log_err_format( "Unable to open device [%d:%d]: blkdev_get returned error code %d", MAJOR( dev_id ), MINOR( dev_id ), 0 - refCount );
         result = refCount;
     }
 
@@ -60,9 +60,9 @@ int _blk_dev_get_info( struct block_device* blk_dev, blk_dev_info_t* pdev_info )
         pdev_info->io_min = blk_dev->bd_disk->queue->limits.io_min;
     }
     else{
-        pdev_info->physical_block_size = SECTOR512;
-        pdev_info->logical_block_size = SECTOR512;
-        pdev_info->io_min = SECTOR512;
+        pdev_info->physical_block_size = SECTOR_SIZE;
+        pdev_info->logical_block_size = SECTOR_SIZE;
+        pdev_info->io_min = SECTOR_SIZE;
     }
 #else
     pdev_info->physical_block_size = blk_dev->bd_queue->limits.physical_block_size;

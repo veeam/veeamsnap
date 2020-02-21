@@ -188,8 +188,8 @@ void _defer_io_destroy( void* this_resource )
         processed = atomic64_read( &defer_io->state_sectors_processed );
         copyed = atomic64_read( &defer_io->state_sectors_copy_read );
 
-        log_tr_format( "%lld MiB was processed", (processed >> (20-SECTOR512_SHIFT)) );
-        log_tr_format( "%lld MiB was copied", (copyed >> (20 - SECTOR512_SHIFT)) );
+        log_tr_format( "%lld MiB was processed", (processed >> (20-SECTOR_SHIFT)) );
+        log_tr_format( "%lld MiB was copied", (copyed >> (20 - SECTOR_SHIFT)) );
     }
     if (defer_io->dio_thread)
         defer_io_stop( defer_io );
@@ -352,9 +352,9 @@ void defer_io_print_state( defer_io_t* defer_io )
         (long long int)atomic64_read( &defer_io->state_sectors_processed ),
         (long long int)atomic64_read( &defer_io->state_sectors_copy_read ) );
 
-    received_mb = (unsigned long)(atomic64_read( &defer_io->state_sectors_received ) >> (20 - SECTOR512_SHIFT));
-    processed_mb = (unsigned long)(atomic64_read( &defer_io->state_sectors_processed ) >> (20 - SECTOR512_SHIFT));
-    copy_read_mb = (unsigned long)(atomic64_read( &defer_io->state_sectors_copy_read ) >> (20 - SECTOR512_SHIFT));
+    received_mb = (unsigned long)(atomic64_read( &defer_io->state_sectors_received ) >> (20 - SECTOR_SHIFT));
+    processed_mb = (unsigned long)(atomic64_read( &defer_io->state_sectors_processed ) >> (20 - SECTOR_SHIFT));
+    copy_read_mb = (unsigned long)(atomic64_read( &defer_io->state_sectors_copy_read ) >> (20 - SECTOR_SHIFT));
 
     log_tr_format( "bytes: received=%ld MiB processed=%ld MiB copy_read=%ld MiB",
         received_mb,

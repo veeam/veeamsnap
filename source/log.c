@@ -9,6 +9,9 @@
 
 #define MAX_LOG_SIZE  (15 * 1024 * 1024)
 
+#define MAX_LOGLINE_SIZE 256
+#define MAX_FILENAME_SIZE 256
+#define MAX_TIMESTRING_SIZE 256
 /*
 
 void log_dump( void* p, size_t size )
@@ -61,6 +64,7 @@ typedef struct _logging_t
 
     const char* m_logdir;
     struct file* m_filp;
+    char m_filepath[MAX_FILENAME_SIZE];
     struct timespec m_modify_time;
 
     volatile int m_state;
@@ -89,12 +93,12 @@ static void _log_kernel_tr( const char* section, const char* s )
     }
 }
 
-static int __logging_filp_open( logging_t* logging, char* path )
+static int __logging_filp_open( logging_t* logging )
 {
     int res = SUCCESS;
     struct file* filp = NULL;
     do{
-        filp = filp_open( path, O_WRONLY | O_APPEND | O_CREAT, 0644 );
+        filp = filp_open(logging->m_filepath, O_WRONLY | O_APPEND | O_CREAT, 0644 );
         if (IS_ERR( filp )){
             res = PTR_ERR( filp );
             pr_err( "ERR %s:%s Failed to open file. res=%d\n", MODULE_NAME, SECTION, res );
@@ -137,7 +141,7 @@ static int __logging_filp_write( logging_t* logging, const char* buff, const siz
         return -EINVAL;
     }
     if (logging->m_filp == NULL){
-        pr_err( "%s:%s pointer m_filp is NULL\n", MODULE_NAME, SECTION );
+        //pr_err( "%s:%s pointer m_filp is NULL\n", MODULE_NAME, SECTION );
         return -EINVAL;
     }
 
@@ -173,41 +177,39 @@ static int __logging_filp_get_size( logging_t* logging, loff_t* p_size )
         return -EINVAL;
 }
 
-static void _logging_filename_create( logging_t* logging, char* filepath, size_t filepath_size )
+static int _logging_filename_create( logging_t* logging )
 {
-    struct tm modify_time;
-    getnstimeofday( &logging->m_modify_time );
+    if (logging->m_logdir == NULL)
+        return -ENOTDIR;
+    else
+    {
+        struct tm modify_time;
+        getnstimeofday(&logging->m_modify_time);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
-    time_to_tm( logging->m_modify_time.tv_sec, 0, &modify_time );
+        time_to_tm(logging->m_modify_time.tv_sec, 0, &modify_time);
 #else
-	time64_to_tm(logging->m_modify_time.tv_sec, 0, &modify_time);
+        time64_to_tm(logging->m_modify_time.tv_sec, 0, &modify_time);
 #endif
-
-    snprintf( filepath, filepath_size, "%s/%s-%04ld%02d%02d.log",
-        logging->m_logdir,
-        MODULE_NAME,
-        modify_time.tm_year + 1900,
-        modify_time.tm_mon + 1,
-        modify_time.tm_mday );
+        snprintf(logging->m_filepath, sizeof(logging->m_filepath), "%s/%s-%04ld%02d%02d.log",
+            logging->m_logdir,
+            MODULE_NAME,
+            modify_time.tm_year + 1900,
+            modify_time.tm_mon + 1,
+            modify_time.tm_mday);
+    }
+    return SUCCESS;
 }
 
 static int _logging_open( logging_t* logging )
 {
     int res = SUCCESS;
-    char filepath[256];
-
-    _logging_filename_create( logging, filepath, sizeof( filepath ) );
 
     mutex_lock( &logging->m_lock );
-    res = __logging_filp_open( logging, filepath );
+    res = __logging_filp_open( logging );
     mutex_unlock( &logging->m_lock );
 
-    if (res != SUCCESS){
-        pr_err( "ERR %s:%s Failed to create file [%s]\n", MODULE_NAME, SECTION, filepath );
-    }
     return res;
 }
-
 
 static void _logging_close( logging_t* logging )
 {
@@ -233,10 +235,9 @@ static void _logging_check_renew( logging_t* logging )
     time_to_tm( _time.tv_sec, 0, &current_time );
     time_to_tm( logging->m_modify_time.tv_sec, 0, &modify_time );
 #else
-	time64_to_tm(_time.tv_sec, 0, &current_time);
-	time64_to_tm(logging->m_modify_time.tv_sec, 0, &modify_time);
+    time64_to_tm(_time.tv_sec, 0, &current_time);
+    time64_to_tm(logging->m_modify_time.tv_sec, 0, &modify_time);
 #endif
-
     if (
         (modify_time.tm_mday == current_time.tm_mday) &&
         (modify_time.tm_mon == current_time.tm_mon) &&
@@ -247,38 +248,42 @@ static void _logging_check_renew( logging_t* logging )
 
     {// day changed
         int res;
-        char filepath [256];
 
-        _logging_filename_create( logging, filepath, sizeof( filepath ) );
-
+        res = _logging_filename_create(logging);
+        if (res != SUCCESS)
+        {
+            pr_warn("WAARN %s:%s Logging fo file will be not performed\n", MODULE_NAME, SECTION);
+            return;
+        }
         mutex_lock( &logging->m_lock );
 
         __logging_filp_close( logging );
-        res = __logging_filp_open( logging, filepath );
+        res = __logging_filp_open( logging );
 
         mutex_unlock( &logging->m_lock );
 
         if (res != SUCCESS){
-            pr_err( "ERR %s:%s Failed to create file [%s]\n", MODULE_NAME, SECTION, filepath );
+            pr_err( "ERR %s:%s Failed to create file [%s]\n", MODULE_NAME, SECTION, logging->m_filepath );
         }
     }
 }
 
 static int _logging_waiting( logging_t* logging )
 {
-    int res = SUCCESS;
+    int result;
 
-    if (queue_sl_empty( logging->m_rq_proc_queue )){
-        //res = wait_event_interruptible_timeout( logging->m_new_rq_event, (!queue_sl_empty( logging->m_rq_proc_queue ) || kthread_should_stop( )), 5 * HZ );
-        //if (res > 0){
-        //    res = SUCCESS;
-        //}
-        //else if (res == 0){
-        //    res = -ETIME;
-        //}
-        res = wait_event_interruptible( logging->m_new_rq_event, (!queue_sl_empty( logging->m_rq_proc_queue ) || kthread_should_stop( )) );
-    }
-    return res;
+    if (!queue_sl_empty( logging->m_rq_proc_queue ))
+        return SUCCESS;
+
+    //return wait_event_interruptible( logging->m_new_rq_event, (!queue_sl_empty( logging->m_rq_proc_queue ) || kthread_should_stop( )) );
+
+    result = wait_event_interruptible_timeout(logging->m_new_rq_event, (!queue_sl_empty(logging->m_rq_proc_queue) || kthread_should_stop()), 10 * HZ); //HZ - ticks per seconds
+    if (0 == result)
+        return -ETIME; //timeout, condition evaluated to false
+    if (result > 0)
+        return SUCCESS; //condition evaluated to true
+
+    return result;
 }
 
 static inline void _log_prefix( char* timebuff, const size_t buffsize, struct tm* _time, logging_request_t* rq, const char* level_text )
@@ -335,11 +340,11 @@ static int _logging_process( logging_t* logging )
         else{
 
             struct tm _time;
-            char timebuff[256];
+            char timebuff[MAX_TIMESTRING_SIZE];
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
             time_to_tm( rq->m_time.tv_sec, 0, &_time );
 #else
-			time64_to_tm(rq->m_time.tv_sec, 0, &_time);
+            time64_to_tm(rq->m_time.tv_sec, 0, &_time);
 #endif
             _log_prefix( timebuff, sizeof( timebuff ), &_time, rq, _log_level_to_text( rq->m_level ) );
 
@@ -372,9 +377,22 @@ int _logging_thread( void *data )
 {
     int result = SUCCESS;
     logging_t* logging = (logging_t*)data;
-
 #ifdef LOGFILE
-    _logging_open( logging );
+    bool is_file_logging = false;
+    {
+        int res = SUCCESS;
+
+        res = _logging_filename_create(logging);
+        if (res == SUCCESS) {
+            res = _logging_open(logging);
+            if (SUCCESS == res)
+                is_file_logging = true; // file opened for the first time
+            else
+                pr_err("ERR %s:%s Failed to create file [%s]\n", MODULE_NAME, SECTION, logging->m_filepath);
+        }
+        else
+            pr_warn("WARN %s:%s Logging to file will be not performed\n", MODULE_NAME, SECTION);
+    }
 #endif
     //priority
     //set_user_nice( current, -20 ); //MIN_NICE
@@ -382,10 +400,19 @@ int _logging_thread( void *data )
     while (!kthread_should_stop( ))
     {
         int res = _logging_waiting( logging );
-        if (res == SUCCESS)
-            result = _logging_process( logging );
-        else if (res == -ETIME){
-            //do nothing
+        if (res == SUCCESS) {
+#ifdef LOGFILE
+            if (is_file_logging && (logging->m_filp == NULL))
+                _logging_open(logging);
+#endif
+            result = _logging_process(logging);
+        }
+        else if (res == -ETIME) {
+#ifdef LOGFILE
+            if (is_file_logging)
+                _logging_close(logging);
+            continue;
+#endif
         }
         else{
             result = res;
@@ -422,6 +449,7 @@ int logging_init( const char* logdir )
     init_waitqueue_head( &logging->m_new_rq_event );
     mutex_init( &logging->m_lock );
     logging->m_logdir = logdir;
+    memset(logging->m_filepath, 0, sizeof(logging->m_filepath));
     logging->m_filp = NULL;
     memset( &logging->m_modify_time, 0, sizeof( struct timespec ) );
     logging->m_state = LOGGING_STATE_READY;
@@ -510,6 +538,8 @@ void logging_renew_check( void )
 
 void log_s( const char* section, const unsigned level, const char* s )
 {
+    size_t linesize = 0;
+
     if (level != LOGGING_LEVEL_TR){
         char* level_string;
         if (level == LOGGING_LEVEL_ERR)
@@ -521,105 +551,132 @@ void log_s( const char* section, const unsigned level, const char* s )
 
         _log_kernel( section, level_string, s );
     }
-    if (SUCCESS != _logging_buffer( section, level, s, strlen( s ) )){
+
+    linesize = strlen(s);
+    //BUG_ON(linesize >= 256);
+
+    if (SUCCESS != _logging_buffer(section, level, s, linesize)){
         _log_kernel_tr( section, s );
     }
+    
 }
 
 void log_s_s( const char* section, const unsigned level, const char* s1, const char* s2 )
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
     snprintf( _tmp, sizeof( _tmp ), "%s%s", s1, s2);
     log_s( section, level, _tmp );
 }
 
 void log_s_d( const char* section, const unsigned level, const char* s, const int d )
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
     snprintf( _tmp, sizeof( _tmp ), "%s%d", s, d );
     log_s( section, level, _tmp );
 }
 
 void log_s_ld( const char* section, const unsigned level, const char* s, const long d )
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
     snprintf( _tmp, sizeof( _tmp ), "%s%ld", s, d );
     log_s( section, level, _tmp );
 }
 
 void log_s_lld( const char* section, const unsigned level, const char* s, const long long d )
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
     snprintf( _tmp, sizeof( _tmp ), "%s%lld", s, d );
     log_s( section, level, _tmp );
 }
 
 void log_s_sz( const char* section, const unsigned level, const char* s, const size_t d )
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
     snprintf( _tmp, sizeof( _tmp ), "%s%lu", s, (unsigned long)d );
     log_s( section, level, _tmp );
 }
 
 void log_s_x( const char* section, const unsigned level, const char* s, const int d )
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
     snprintf( _tmp, sizeof( _tmp ), "%s0x%x", s, d );
     log_s( section, level, _tmp );
 }
 
 void log_s_lx( const char* section, const unsigned level, const char* s, const long d )
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
     snprintf( _tmp, sizeof( _tmp ), "%s0x%lx", s, d );
     log_s( section, level, _tmp );
 }
 
 void log_s_llx( const char* section, const unsigned level, const char* s, const long long d )
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
     snprintf( _tmp, sizeof( _tmp ), "%s0x%llx", s, d );
     log_s( section, level, _tmp );
 }
 
 void log_s_p( const char* section, const unsigned level, const char* s, const void* p )
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
     snprintf( _tmp, sizeof( _tmp ), "%s0x%p", s, p );
     log_s( section, level, _tmp );
 }
 
 void log_s_dev_id( const char* section, const unsigned level, const char* s, const int major, const int minor )
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
     snprintf( _tmp, sizeof( _tmp ), "%s[%d:%d]", s, major, minor );
     log_s( section, level, _tmp );
 }
 
-// void log_s_uuid_bytes( const char* section, const unsigned level, const char* s, const __u8 b[16] )
-// {
-//     char _tmp[256];
-//     snprintf( _tmp, sizeof( _tmp ), "%s[%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x%02x%02x]", s, b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15] );
-//     log_s( section, level, _tmp );
-// }
-
 void log_s_uuid(const char* section, const unsigned level, const char* s, const veeam_uuid_t* uuid)
 {
-    char _tmp[256];
-    snprintf( _tmp, sizeof( _tmp ), "%s[%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x%02x%02x]", s, uuid->b[0], uuid->b[1], uuid->b[2], uuid->b[3], uuid->b[4], uuid->b[5], uuid->b[6], uuid->b[7], uuid->b[8], uuid->b[9], uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14], uuid->b[15] );
+    char _tmp[MAX_LOGLINE_SIZE];
+    snprintf( _tmp, sizeof( _tmp ), "%s[%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x]", s, uuid->b[0], uuid->b[1], uuid->b[2], uuid->b[3], uuid->b[4], uuid->b[5], uuid->b[6], uuid->b[7], uuid->b[8], uuid->b[9], uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14], uuid->b[15] );
     log_s( section, level, _tmp );
 }
 
+/*
+void log_s_uuid(const char* section, const unsigned level, const char* s, const veeam_uuid_t* uuid)
+{
+    char _tmp[MAX_LINE_SIZE];
+
+    snprintf(_tmp, sizeof(_tmp), "%s[%08x-%04x-%04x-%04x-%02x%02x%02x%02x%02x%02x]", s, 
+        (unsigned int*)(&uuid->b[0]), 
+        (unsigned short*)(&uuid->b[4]), 
+        (unsigned short*)(&uuid->b[6]), 
+        (unsigned short*)(&uuid->b[8]),
+        uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14], uuid->b[15]);
+    log_s(section, level, _tmp);
+}
+*/
 void log_s_range( const char* section, const unsigned level, const char* s, const range_t* range )
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
     snprintf( _tmp, sizeof( _tmp ), "%s ofs=0x%llx, cnt=0x%llx", s, (unsigned long long)range->ofs, (unsigned long long)range->cnt );
     log_s( section, level, _tmp );
 }
 
-void log_vformat( const char* section, const int level, const char *frm, va_list args )
+void log_s_bytes(const char* section, const unsigned level, const unsigned char* bytes, const size_t count)
 {
-    char _tmp[256];
+    char _tmp[MAX_LOGLINE_SIZE];
+    size_t pos = 0;
+    size_t inx = 0;
+    while ( (pos < 252) && (inx < count) ){
+        snprintf(_tmp + pos, sizeof(_tmp)-pos, "%02x ", bytes[inx]);
+        pos += 3;
+        ++inx;
+    }
+    _tmp[pos] = '\0';
+    log_s(section, level, _tmp);
+    
+}
+
+void log_vformat(const char* section, const int level, const char *frm, va_list args)
+{
+    char _tmp[MAX_LOGLINE_SIZE];
     vsnprintf( _tmp, sizeof( _tmp ), frm, args );
     log_s( section, level, _tmp );
 }
@@ -630,4 +687,31 @@ void log_format( const char* section, const int level, const char* frm, ... )
     va_start( args, frm );
     log_vformat( section, level, frm, args );
     va_end( args );
+}
+
+void log_s_sec(const char* section, const unsigned level, const char* s, const time_t totalsecs)
+{
+    struct tm _time;
+    char _tmp[MAX_LOGLINE_SIZE];
+
+    if (strlen(s) > (MAX_LOGLINE_SIZE - 20))
+        return;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
+    time_to_tm(totalsecs, 0, &_time);
+#else
+    time64_to_tm(totalsecs, 0, &_time);
+#endif
+
+    snprintf(_tmp, MAX_LOGLINE_SIZE, "%s%02d.%02d.%04ld %02d:%02d:%02d",
+        s,
+        _time.tm_mday,
+        _time.tm_mon + 1,
+        _time.tm_year + 1900,
+
+        _time.tm_hour,
+        _time.tm_min,
+        _time.tm_sec);
+
+    log_s(section, level, _tmp);
 }

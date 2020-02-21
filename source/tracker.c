@@ -1,8 +1,12 @@
 #include "stdafx.h"
 #include "tracker.h"
+#ifdef PERSISTENT_CBT
+#include "cbt_persistent.h"
+#endif
 #include "blk_util.h"
 #define SECTION "tracker   "
 #include "log_format.h"
+
 
 static container_sl_t trackers_container;
 
@@ -109,6 +113,28 @@ int tracker_find_by_dev_id( dev_t dev_id, tracker_t** ptracker )
     return result;
 }
 
+/*
+int tracker_find_by_sb(struct super_block* sb, tracker_t** ptracker)
+{
+    int result = -ENODATA;
+
+    content_sl_t* content = NULL;
+    tracker_t* tracker = NULL;
+    CONTAINER_SL_FOREACH_BEGIN(trackers_container, content)
+    {
+        tracker = (tracker_t*)content;
+        if (tracker->sb == sb){
+            *ptracker = tracker;
+            result = SUCCESS;    //found!
+            break;
+        }
+    }
+    CONTAINER_SL_FOREACH_END(trackers_container);
+
+    return result;
+}
+*/
+
 int tracker_enum_cbt_info( int max_count, struct cbt_info_s* p_cbt_info, int* p_count )
 {
     int result = -ENODATA;
@@ -149,17 +175,14 @@ int tracker_enum_cbt_info( int max_count, struct cbt_info_s* p_cbt_info, int* p_
     return result;
 }
 
-void tracker_cbt_start( tracker_t* tracker, unsigned long long snapshot_id, unsigned int cbt_block_size_degree, sector_t device_capacity )
+void tracker_cbt_start(tracker_t* tracker, unsigned long long snapshot_id, cbt_map_t* cbt_map)
 {
     tracker_snapshot_id_set(tracker, snapshot_id);
-
-    tracker->cbt_map = cbt_map_get_resource( cbt_map_create( (cbt_block_size_degree - SECTOR512_SHIFT), device_capacity ) );
-    
-    tracker->cbt_block_size_degree = cbt_block_size_degree;
-    tracker->device_capacity = device_capacity;
+    tracker->cbt_map = cbt_map_get_resource(cbt_map);
 }
 
-int tracker_create( unsigned long long snapshot_id, dev_t dev_id, unsigned int cbt_block_size_degree, tracker_t** ptracker )
+
+int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cbt_block_size_degree, cbt_map_t* cbt_map, tracker_t** ptracker)
 {
     int result = SUCCESS;
     tracker_t* tracker = NULL;
@@ -173,6 +196,9 @@ int tracker_create( unsigned long long snapshot_id, dev_t dev_id, unsigned int c
     atomic_set( &tracker->is_captured, false);
     tracker->is_unfreezable = false;
     init_rwsem(&tracker->unfreezable_lock);
+    
+    //tracker->put_super = NULL;
+    //tracker->sb = NULL;
 
     tracker->original_dev_id = dev_id;
 
@@ -185,9 +211,22 @@ int tracker_create( unsigned long long snapshot_id, dev_t dev_id, unsigned int c
         log_tr_format( "Create tracker for device [%d:%d]. Start 0x%llx sector, capacity 0x%llx sectors",
             MAJOR( tracker->original_dev_id ), MINOR( tracker->original_dev_id ), 
             (unsigned long long)blk_dev_get_start_sect( tracker->target_dev ),
-            (unsigned long long)blk_dev_get_capacity( tracker->target_dev ) );
+            (unsigned long long)blk_dev_get_capacity(tracker->target_dev));
 
-        tracker_cbt_start( tracker, snapshot_id, cbt_block_size_degree, blk_dev_get_capacity( tracker->target_dev ) );
+
+        if (cbt_map == NULL){
+            cbt_map = cbt_map_create(cbt_block_size_degree-SECTOR_SHIFT, blk_dev_get_capacity(tracker->target_dev));
+            if (cbt_map == NULL){
+                result = -ENOMEM;
+                break;
+            }
+            tracker_cbt_start(tracker, snapshot_id, cbt_map);
+#ifdef PERSISTENT_CBT
+            cbt_persistent_register(tracker->original_dev_id, tracker->cbt_map);
+#endif
+        }
+        else
+            tracker_cbt_start(tracker, snapshot_id, cbt_map);
 
         result = blk_freeze_bdev( tracker->original_dev_id, tracker->target_dev, &superblock );
         if (result != SUCCESS){
@@ -245,7 +284,7 @@ int _tracker_remove( tracker_t* tracker )
         result=-ENODEV;
 
     if (NULL != tracker->cbt_map){
-        cbt_map_put_resource( tracker->cbt_map );
+        cbt_map_put_resource(tracker->cbt_map);
         tracker->cbt_map = NULL;
     }
 
@@ -261,7 +300,6 @@ int tracker_remove(tracker_t* tracker)
 
     return result;
 }
-
 
 int tracker_remove_all(void )
 {
@@ -286,25 +324,22 @@ int tracker_remove_all(void )
     return result;
 }
 
-int tracker_cbt_bitmap_set( tracker_t* tracker, sector_t sector, sector_t sector_cnt )
+void tracker_cbt_bitmap_set( tracker_t* tracker, sector_t sector, sector_t sector_cnt )
 {
-    int res = SUCCESS;
-    if (tracker->device_capacity == blk_dev_get_capacity( tracker->target_dev )){
-        if (tracker->cbt_map)
-            res = cbt_map_set( tracker->cbt_map, sector, sector_cnt );
-    }
-    else{
-        log_warn( "Device resize detected" );
-        res = -EINVAL;
+    if (tracker->cbt_map == NULL)
+        return;
+
+    if (tracker->cbt_map->device_capacity != blk_dev_get_capacity(tracker->target_dev)){
+        log_warn("Device resize detected");
+        tracker->cbt_map->active = false;
+        return;
     }
 
-    if (SUCCESS != res){ //cbt corrupt
-        if (tracker->cbt_map){
-            log_warn( "CBT fault detected" );
-            tracker->cbt_map->active = false;
-        }
+    if (SUCCESS != cbt_map_set(tracker->cbt_map, sector, sector_cnt)){ //cbt corrupt
+        log_warn( "CBT fault detected" );
+        tracker->cbt_map->active = false;
+        return;
     }
-    return res;
 }
 
 bool tracker_cbt_bitmap_lock( tracker_t* tracker )
@@ -348,7 +383,7 @@ int _tracker_capture_snapshot( tracker_t* tracker )
 
             log_tr_format( "Snapshot captured for device [%d:%d]. New snap number %ld",
                 MAJOR( tracker->original_dev_id ), MINOR( tracker->original_dev_id ), tracker->cbt_map->snap_number_active );
-    }
+        }
     }
 
     return result;
@@ -394,6 +429,10 @@ int tracker_capture_snapshot( snapshot_t* snapshot )
         dev_t dev_id = snapshot->dev_id_set[inx];
 
         result = tracker_find_by_dev_id( dev_id, &p_tracker );
+        if (result != SUCCESS){
+            log_err_dev_t("Unable to capture snapshot: cannot find device ", dev_id);
+            continue;
+        }
 
         if (snapstore_device_is_corrupted( p_tracker->defer_io->snapstore_device )){
             log_err_format( "Unable to freeze devices [%d:%d]: snapshot data is corrupted", dev_id );
@@ -477,7 +516,15 @@ void tracker_print_state( void )
     tracker_t** trackers;
     int tracksers_cnt = 0;
 
+    log_tr("");
+    log_tr("Trackers state:");
+
     tracksers_cnt = container_sl_length( &trackers_container );
+    if (tracksers_cnt == 0){
+        log_tr("Trackers not found.");
+        return;
+    }
+
     sz = tracksers_cnt * sizeof( tracker_t* );
     trackers = dbg_kzalloc( sz, GFP_KERNEL );
     if (trackers == NULL){
@@ -499,17 +546,18 @@ void tracker_print_state( void )
         }
         CONTAINER_SL_FOREACH_END( trackers_container );
 
-        log_tr( "" );
-        log_tr( "Trackers state:" );
         for (inx = 0; inx < tracksers_cnt; ++inx){
 
             if (NULL != trackers[inx]){
                 log_tr_dev_t( "original device ", trackers[inx]->original_dev_id );
                 if (trackers[inx]->defer_io)
                     defer_io_print_state( trackers[inx]->defer_io );
+                if (trackers[inx]->cbt_map)
+                    cbt_print_state(trackers[inx]->cbt_map);
             }
         }
     } while (false);
+
     dbg_kfree( trackers );
 }
 

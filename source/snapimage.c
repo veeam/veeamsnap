@@ -210,7 +210,7 @@ int image_trace_read(snapimage_t* image, unsigned int capacity, unsigned int* p_
             break;
 
         if (0 != copy_to_user(records + processed_count, trace_page->records + trace_page->load_inx, can_load * sizeof(trace_record_t))){
-            log_err("[TBD] Unable to write trace info: invalid user buffer");
+            log_err("Unable to write trace info: invalid user buffer");
             return -EINVAL;
         }
 
@@ -398,7 +398,7 @@ int _snapimage_ioctl( struct block_device *bdev, fmode_t mode, unsigned cmd, uns
                 res = image_trace_read(image, param.capacity, &param.count, param.records );
                 if (res == SUCCESS){
                     if (0 != copy_to_user((void*)arg, &param, sizeof(struct ioctl_image_trace_read_s))){
-                        log_err("[TBD] Unable to read trace info: invalid user buffer");
+                        log_err("Unable to read trace info: invalid user buffer");
                         res = -ENODATA;
                     }
                 }
@@ -448,13 +448,6 @@ static struct block_device_operations g_snapimage_ops = {
 #ifdef CONFIG_COMPAT
     .compat_ioctl = _snapimage_compat_ioctl,
 #endif
-
-    //.check_events = NULL,
-    .media_changed = NULL,
-    //.unlock_native_capacity = NULL,
-    .revalidate_disk = NULL,
-    .getgeo = NULL,
-    //.swap_slot_free_notify = NULL
 };
 
 int _snapimage_request_read( defer_io_t* p_defer_io, blk_redirect_bio_endio_t* rq_endio )

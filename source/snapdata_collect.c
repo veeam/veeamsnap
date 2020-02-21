@@ -247,9 +247,8 @@ int snapdata_collect_LocationGet( dev_t dev_id, rangelist_t* rangelist, size_t* 
 #endif
     if (res == SUCCESS){
         rangelist_calculate(rangelist, &ranges_length, &count, false);
-        log_tr_llx( "Collection size: ", collector->collected_size );
-        //log_tr_llx("In bitmap size", collector->in_bitmap_size);
-        //log_tr_llx("In ranges sectors", ranges_length);
+        log_tr_llx("Collection size: ", collector->collected_size);
+        log_tr_llx("Already set size: ", collector->already_set_size);
         log_tr_d("Ranges count: ", count);
 
         *ranges_count = count;
@@ -328,7 +327,7 @@ int _snapdata_collect_bvec( snapdata_collector_t* collector, sector_t ofs, struc
     bv_len = bvec->bv_len;
     bv_offset = bvec->bv_offset;
 
-    if ((bv_len >> SECTOR512_SHIFT) > (sizeof( stream_size_t ) * 8)){ //because sectors_map have only 64 bits.
+    if ((bv_len >> SECTOR_SHIFT) > (sizeof( stream_size_t ) * 8)){ //because sectors_map have only 64 bits.
         log_err_format( "Unable to collect snapstore data location: large PAGE_SIZE [%ld] is not supported yet. bv_len=%d", PAGE_SIZE, bv_len );
         return -EINVAL;
     }
@@ -337,13 +336,11 @@ int _snapdata_collect_bvec( snapdata_collector_t* collector, sector_t ofs, struc
 #else
     mem = kmap_atomic( bvec->bv_page ) ;
 #endif
-    for (buff_ofs = bv_offset; buff_ofs < ( bv_offset + bv_len ); buff_ofs+=SECTOR512){
-        size_t compare_len = min( (size_t)SECTOR512, collector->magic_size );
+    for (buff_ofs = bv_offset; buff_ofs < ( bv_offset + bv_len ); buff_ofs+=SECTOR_SIZE){
+        size_t compare_len = min( (size_t)SECTOR_SIZE, collector->magic_size );
 
-        if (0 == memcmp( mem + buff_ofs, collector->magic_buff, compare_len )){
-            sectors_map |= (stream_size_t)1 << (stream_size_t)(buff_ofs >> SECTOR512_SHIFT);
-            collector->collected_size += SECTOR512;
-        }
+        if (0 == memcmp( mem + buff_ofs, collector->magic_buff, compare_len ))
+            sectors_map |= (stream_size_t)1 << (stream_size_t)(buff_ofs >> SECTOR_SHIFT);
     }
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,37)
     kunmap_atomic( mem, KM_BOUNCE_READ );
@@ -352,21 +349,43 @@ int _snapdata_collect_bvec( snapdata_collector_t* collector, sector_t ofs, struc
 #endif
 
     mutex_lock(&collector->locker);
-    for (buff_ofs = bv_offset; buff_ofs < (bv_offset + bv_len); buff_ofs += SECTOR512){
+    for (buff_ofs = bv_offset; buff_ofs < (bv_offset + bv_len); buff_ofs += SECTOR_SIZE){
         sector_t buff_ofs_sect = sector_from_size( buff_ofs );
         if ((1ull << buff_ofs_sect) & sectors_map)
         {
-            stream_size_t index = ofs + buff_ofs_sect;
+            sector_t index = ofs + buff_ofs_sect;
 #ifdef SNAPDATA_SPARSE_CHANGES
             res = sparsebitmap_Set(&collector->changes_sparse, index, true);
 #else
             res = page_array_bit_set(collector->changes, (index - collector->start_index), true);
 #endif
             if (res == SUCCESS){
-                collector->in_bitmap_size += SECTOR512;
+                collector->collected_size += SECTOR_SIZE;
+/*
+                if (index == collector->collected_end + 1)
+                    collector->collected_end++;
+                else {
+                    log_tr_sect("Collected index from: ", collector->collected_begin);
+                    log_tr_sect("Collected index to  : ", collector->collected_end);
+
+                    collector->collected_begin = index;
+                    collector->collected_end = index;
+                }
+*/
             }else{
                 if (res == -EALREADY){
-                    log_err( "already set" );
+                    collector->already_set_size += SECTOR_SIZE;
+/*
+                    if (index == collector->already_set_end + 1)
+                        collector->already_set_end++;
+                    else {
+                        log_tr_sect("Already set index from: ", collector->already_set_begin);
+                        log_tr_sect("Already set index to  : ", collector->already_set_end);
+
+                        collector->already_set_begin = index;
+                        collector->already_set_end = index;
+                    }
+*/
                 }else{
                     log_err_format("Failed to collect snapstore data location. Sector=%lld, errno=%d", index, res);
                     break;
