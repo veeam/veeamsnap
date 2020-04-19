@@ -68,7 +68,7 @@ static int _cbt_storage_read_page(cbt_storage_accessor_t* accessor)
     return SUCCESS;
 }
 
-static int _cbt_storage_write_page(cbt_storage_accessor_t* accessor, struct timespec* optional_time)
+static int _cbt_storage_write_page(cbt_storage_accessor_t* accessor, struct timespec64* optional_time)
 {
     int res;
     sector_t phys_offset = 0;
@@ -271,7 +271,7 @@ int cbt_storage_prepare4read(cbt_storage_accessor_t* accessor)
 
     //set CBT data empty
     {
-        struct timespec tm = {0}; //
+        struct timespec64 tm = {0}; //
         res = _cbt_storage_write_page(accessor, &tm);
         if (res != SUCCESS){
             log_err("Failed to write first page ");
@@ -295,7 +295,7 @@ int cbt_storage_prepare4write(cbt_storage_accessor_t* accessor)
         return res;
     }
     //get time
-    getnstimeofday(&accessor->time);
+    ktime_get_ts64(&accessor->time);
 
     return res;
 }
@@ -341,7 +341,7 @@ int cbt_storage_read(cbt_storage_accessor_t* accessor, void* dst, size_t sz)
         }
 
         if (ofs == sz)
-            break;//reading is complete 
+            break;//reading is complete
 
         can_be_read = min(CBT_PAGE_DATA_SIZE - accessor->page_offset, sz - ofs);
         memcpy(dst, accessor->page->data + accessor->page_offset, can_be_read);
@@ -369,7 +369,7 @@ int cbt_storage_write(cbt_storage_accessor_t* accessor, void* src, size_t sz)
         log_tr_format("can_be_write is zero. sz=%lu, ofs=%lu page_offset=%lu", (unsigned long)(sz), (unsigned long)(ofs), (unsigned long)(accessor->page_offset));
         return -EFAULT;
     }
-    
+
     memcpy(accessor->page->data + accessor->page_offset, src + ofs, can_be_write);
     accessor->page_offset += can_be_write;
     ofs += can_be_write;
@@ -400,7 +400,7 @@ int cbt_storage_write(cbt_storage_accessor_t* accessor, void* src, size_t sz)
         }
 
         if (ofs == sz)
-            break;//writing is complete 
+            break;//writing is complete
 
         can_be_write = min(CBT_PAGE_DATA_SIZE - accessor->page_offset, sz - ofs);
         log_tr_sz("DEBUG! can_be_write=", can_be_write);
@@ -437,7 +437,7 @@ int cbt_storage_write_finish(cbt_storage_accessor_t* accessor)
     accessor->page_offset = 0;
 
     {//store empty unused pages
-        struct timespec tm = {0}; 
+        struct timespec64 tm = {0};
         memset(accessor->page->data, 0, CBT_PAGE_DATA_SIZE);
 
         while (accessor->page_number < accessor->page_count){

@@ -21,7 +21,7 @@ typedef struct cbt_storage_accessor_s
     struct block_device* device;
     rangevector_t* rangevector;
 
-    struct timespec time;//cbt data time marker
+    struct timespec64 time;//cbt data time marker
 
     struct page* pg;
     cbt_storage_page_t* page;
