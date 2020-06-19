@@ -22,7 +22,11 @@ void log_s_bytes(const char* section, const unsigned level, const unsigned char*
 
 void log_vformat( const char* section, const int level, const char *frm, va_list args );
 void log_format( const char* section, const int level, const char* frm, ... );
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,6,0)
+void log_s_sec(const char* section, const unsigned level, const char* s, const time_t totalsecs);
+#else
 void log_s_sec(const char* section, const unsigned level, const char* s, const uint64_t totalsecs);
+#endif
 ///////////////////////////////////////////////////////////////////////////////
 #define LOGGING_LEVEL_CMD 'CMD\0'
 #define LOGGING_LEVEL_ERR 'ERR\0'

@@ -40,7 +40,11 @@ typedef struct _logging_request_t
 {
     queue_content_sl_t content;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,6,0)
+    struct timespec m_time;
+#else
     struct timespec64 m_time;
+#endif
     pid_t m_pid;
     const char* m_section;
     unsigned m_level;
@@ -65,7 +69,11 @@ typedef struct _logging_t
     const char* m_logdir;
     struct file* m_filp;
     char m_filepath[MAX_FILENAME_SIZE];
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,6,0)
+    struct timespec m_modify_time;
+#else
     struct timespec64 m_modify_time;
+#endif
 
     volatile int m_state;
 
@@ -184,7 +192,11 @@ static int _logging_filename_create( logging_t* logging )
     else
     {
         struct tm modify_time;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,6,0)
+        getnstimeofday(&logging->m_modify_time);
+#else
         ktime_get_ts64(&logging->m_modify_time);
+#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
         time_to_tm(logging->m_modify_time.tv_sec, 0, &modify_time);
 #else
@@ -221,7 +233,11 @@ static void _logging_close( logging_t* logging )
 static void _logging_check_renew( logging_t* logging )
 {
     loff_t sz = 0;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,6,0)
+    struct timespec _time;
+#else
     struct timespec64 _time;
+#endif
     struct tm current_time;
     struct tm modify_time;
 
@@ -230,7 +246,11 @@ static void _logging_check_renew( logging_t* logging )
         return;
     log_tr_lld( "Log file size: ", sz );
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,6,0)
+    getnstimeofday( &_time );
+#else
     ktime_get_ts64( &_time );
+#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
     time_to_tm( _time.tv_sec, 0, &current_time );
     time_to_tm( logging->m_modify_time.tv_sec, 0, &modify_time );
@@ -451,9 +471,13 @@ int logging_init( const char* logdir )
     logging->m_logdir = logdir;
     memset(logging->m_filepath, 0, sizeof(logging->m_filepath));
     logging->m_filp = NULL;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,6,0)
+    memset( &logging->m_modify_time, 0, sizeof( struct timespec ) );
+#else
     memset( &logging->m_modify_time, 0, sizeof( struct timespec64 ) );
+#endif
     logging->m_state = LOGGING_STATE_READY;
-
+    
     {
         int res = queue_sl_init( &logging->m_rq_proc_queue, sizeof( logging_request_t ) );
         if (res != SUCCESS){
@@ -482,7 +506,7 @@ void logging_done( void )
 
     logging->m_state = LOGGING_STATE_DONE;
     if (logging->m_rq_thread != NULL){
-
+        
         kthread_stop( logging->m_rq_thread );
         logging->m_rq_thread = NULL;
     }
@@ -497,7 +521,7 @@ static int _logging_buffer( const char* section, const unsigned level, const cha
 
     if (logging->m_state != LOGGING_STATE_READY)
         return -EINVAL;
-
+    
     rq = ( logging_request_t* )queue_content_sl_new_opt_append( &logging->m_rq_proc_queue, GFP_NOIO, len );
     if (NULL == rq){
         pr_err( "ERR %s:%s Cannot allocate memory for logging\n", MODULE_NAME, SECTION );
@@ -507,13 +531,17 @@ static int _logging_buffer( const char* section, const unsigned level, const cha
     rq->m_section = section;
     rq->m_level = level;
     rq->m_pid = get_current( )->pid;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,6,0)
+    getnstimeofday( &rq->m_time );
+#else
     ktime_get_ts64( &rq->m_time );
-
+#endif
+    
     rq->m_len = len;
     if ((len != 0) && (buff != NULL))
         memcpy( rq->m_buff, buff, len );
     rq->m_buff[len] = '\n';
-
+    
     if (SUCCESS == queue_sl_push_back( &logging->m_rq_proc_queue, &rq->content )){
         wake_up( &logging->m_new_rq_event );
         return SUCCESS;
@@ -558,7 +586,7 @@ void log_s( const char* section, const unsigned level, const char* s )
     if (SUCCESS != _logging_buffer(section, level, s, linesize)){
         _log_kernel_tr( section, s );
     }
-
+    
 }
 
 void log_s_s( const char* section, const unsigned level, const char* s1, const char* s2 )
@@ -643,10 +671,10 @@ void log_s_uuid(const char* section, const unsigned level, const char* s, const 
 {
     char _tmp[MAX_LINE_SIZE];
 
-    snprintf(_tmp, sizeof(_tmp), "%s[%08x-%04x-%04x-%04x-%02x%02x%02x%02x%02x%02x]", s,
-        (unsigned int*)(&uuid->b[0]),
-        (unsigned short*)(&uuid->b[4]),
-        (unsigned short*)(&uuid->b[6]),
+    snprintf(_tmp, sizeof(_tmp), "%s[%08x-%04x-%04x-%04x-%02x%02x%02x%02x%02x%02x]", s, 
+        (unsigned int*)(&uuid->b[0]), 
+        (unsigned short*)(&uuid->b[4]), 
+        (unsigned short*)(&uuid->b[6]), 
         (unsigned short*)(&uuid->b[8]),
         uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14], uuid->b[15]);
     log_s(section, level, _tmp);
@@ -671,7 +699,7 @@ void log_s_bytes(const char* section, const unsigned level, const unsigned char*
     }
     _tmp[pos] = '\0';
     log_s(section, level, _tmp);
-
+    
 }
 
 void log_vformat(const char* section, const int level, const char *frm, va_list args)
@@ -689,7 +717,11 @@ void log_format( const char* section, const int level, const char* frm, ... )
     va_end( args );
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,6,0)
+void log_s_sec(const char* section, const unsigned level, const char* s, const time_t totalsecs)
+#else
 void log_s_sec(const char* section, const unsigned level, const char* s, const uint64_t totalsecs)
+#endif
 {
     struct tm _time;
     char _tmp[MAX_LOGLINE_SIZE];
