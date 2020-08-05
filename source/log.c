@@ -7,8 +7,6 @@
 #define LOGFILE
 #define LOGGING_CHECK_RENEW "CHECK_RENEW"
 
-#define MAX_LOG_SIZE  (15 * 1024 * 1024)
-
 #define MAX_LOGLINE_SIZE 256
 #define MAX_FILENAME_SIZE 256
 #define MAX_TIMESTRING_SIZE 256
@@ -39,8 +37,11 @@ void log_dump( void* p, size_t size )
 typedef struct _logging_request_t
 {
     queue_content_sl_t content;
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
     struct timespec m_time;
+#else
+    struct timespec64 m_time;
+#endif
     pid_t m_pid;
     const char* m_section;
     unsigned m_level;
@@ -63,10 +64,14 @@ typedef struct _logging_t
     struct mutex m_lock;
 
     const char* m_logdir;
+    unsigned long m_logmaxsize;
     struct file* m_filp;
     char m_filepath[MAX_FILENAME_SIZE];
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
     struct timespec m_modify_time;
-
+#else
+    struct timespec64 m_modify_time;
+#endif
     volatile int m_state;
 
     queue_sl_t m_rq_proc_queue; //log request processing queue
@@ -184,10 +189,11 @@ static int _logging_filename_create( logging_t* logging )
     else
     {
         struct tm modify_time;
-        getnstimeofday(&logging->m_modify_time);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
+        getnstimeofday(&logging->m_modify_time);
         time_to_tm(logging->m_modify_time.tv_sec, 0, &modify_time);
 #else
+        ktime_get_real_ts64(&logging->m_modify_time);
         time64_to_tm(logging->m_modify_time.tv_sec, 0, &modify_time);
 #endif
         snprintf(logging->m_filepath, sizeof(logging->m_filepath), "%s/%s-%04ld%02d%02d.log",
@@ -221,20 +227,25 @@ static void _logging_close( logging_t* logging )
 static void _logging_check_renew( logging_t* logging )
 {
     loff_t sz = 0;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
     struct timespec _time;
+#else
+    struct timespec64 _time;
+#endif
     struct tm current_time;
     struct tm modify_time;
 
     __logging_filp_get_size( logging, &sz );
-    if (sz < MAX_LOG_SIZE)
+    if (sz < logging->m_logmaxsize)
         return;
     log_tr_lld( "Log file size: ", sz );
 
-    getnstimeofday( &_time );
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
+    getnstimeofday(&_time);
     time_to_tm( _time.tv_sec, 0, &current_time );
     time_to_tm( logging->m_modify_time.tv_sec, 0, &modify_time );
 #else
+    ktime_get_real_ts64(&_time);
     time64_to_tm(_time.tv_sec, 0, &current_time);
     time64_to_tm(logging->m_modify_time.tv_sec, 0, &modify_time);
 #endif
@@ -441,7 +452,7 @@ int _logging_thread( void *data )
 }
 
 
-int logging_init( const char* logdir )
+int logging_init( const char* logdir, unsigned long logmaxsize )
 {
     logging_t* logging = &g_logging;
 
@@ -449,9 +460,11 @@ int logging_init( const char* logdir )
     init_waitqueue_head( &logging->m_new_rq_event );
     mutex_init( &logging->m_lock );
     logging->m_logdir = logdir;
+    logging->m_logmaxsize = logmaxsize;
     memset(logging->m_filepath, 0, sizeof(logging->m_filepath));
     logging->m_filp = NULL;
-    memset( &logging->m_modify_time, 0, sizeof( struct timespec ) );
+
+    memset( &logging->m_modify_time, 0, sizeof(logging->m_modify_time) );
     logging->m_state = LOGGING_STATE_READY;
     
     {
@@ -507,8 +520,11 @@ static int _logging_buffer( const char* section, const unsigned level, const cha
     rq->m_section = section;
     rq->m_level = level;
     rq->m_pid = get_current( )->pid;
-    getnstimeofday( &rq->m_time );
-    
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
+    getnstimeofday(&rq->m_time);
+#else
+    ktime_get_real_ts64(&rq->m_time);
+#endif
     rq->m_len = len;
     if ((len != 0) && (buff != NULL))
         memcpy( rq->m_buff, buff, len );
@@ -688,8 +704,11 @@ void log_format( const char* section, const int level, const char* frm, ... )
     log_vformat( section, level, frm, args );
     va_end( args );
 }
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
 void log_s_sec(const char* section, const unsigned level, const char* s, const time_t totalsecs)
+#else
+void log_s_sec(const char* section, const unsigned level, const char* s, const time64_t totalsecs)
+#endif
 {
     struct tm _time;
     char _tmp[MAX_LOGLINE_SIZE];
