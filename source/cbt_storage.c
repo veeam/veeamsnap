@@ -67,14 +67,17 @@ static int _cbt_storage_read_page(cbt_storage_accessor_t* accessor)
 
     return SUCCESS;
 }
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
 static int _cbt_storage_write_page(cbt_storage_accessor_t* accessor, struct timespec* optional_time)
+#else
+static int _cbt_storage_write_page(cbt_storage_accessor_t* accessor, struct timespec64* optional_time)
+#endif
 {
     int res;
     sector_t phys_offset = 0;
     sector_t phys_length = 0;
 
-    log_tr_d("DEBUG! write page# ", accessor->page_number);
+    //log_tr_d("DEBUG! write page# ", accessor->page_number);
 
     //set magic
     memcpy(accessor->page->magic, CBT_STORAGE_MAGIC, 8);
@@ -105,7 +108,7 @@ static int _cbt_storage_write_page(cbt_storage_accessor_t* accessor, struct time
     }
 
     //write page
-    log_tr_sect("DEBUG! offset= ", phys_offset);
+    //log_tr_sect("DEBUG! offset= ", phys_offset);
     res = blk_direct_submit_page(accessor->device, WRITE_SYNC, phys_offset, accessor->pg);
     if (res != SUCCESS){
         log_err("Failed to read device");
@@ -271,7 +274,11 @@ int cbt_storage_prepare4read(cbt_storage_accessor_t* accessor)
 
     //set CBT data empty
     {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
         struct timespec tm = {0}; //
+#else
+        struct timespec64 tm = { 0 }; //
+#endif
         res = _cbt_storage_write_page(accessor, &tm);
         if (res != SUCCESS){
             log_err("Failed to write first page ");
@@ -295,8 +302,11 @@ int cbt_storage_prepare4write(cbt_storage_accessor_t* accessor)
         return res;
     }
     //get time
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
     getnstimeofday(&accessor->time);
-
+#else
+    ktime_get_real_ts64(&accessor->time);
+#endif
     return res;
 }
 
@@ -437,7 +447,11 @@ int cbt_storage_write_finish(cbt_storage_accessor_t* accessor)
     accessor->page_offset = 0;
 
     {//store empty unused pages
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
         struct timespec tm = {0}; 
+#else
+        struct timespec64 tm = { 0 };
+#endif
         memset(accessor->page->data, 0, CBT_PAGE_DATA_SIZE);
 
         while (accessor->page_number < accessor->page_count){
