@@ -812,7 +812,11 @@ int snapimage_create( dev_t original_dev )
         image->open_bdev = NULL;
         image->open_cnt = 0;
 #ifdef VEEAMSNAP_MQ_IO
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0)
         image->queue = blk_alloc_queue(GFP_KERNEL);
+#else
+        image->queue = blk_alloc_queue(_snapimage_make_request, NUMA_NO_NODE);
+#endif
 #else
         if (get_fixflags() & FIXFLAG_RH6_SPINLOCK)
             image->queue = blk_init_queue(NULL, NULL);
@@ -825,8 +829,9 @@ int snapimage_create( dev_t original_dev )
             break;
         }
         image->queue->queuedata = image;
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0)
         blk_queue_make_request( image->queue, _snapimage_make_request );
+#endif
         blk_queue_max_segment_size( image->queue, 1024 * PAGE_SIZE );
 
         {

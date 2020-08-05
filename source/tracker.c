@@ -435,7 +435,7 @@ int tracker_capture_snapshot( snapshot_t* snapshot )
         }
 
         if (snapstore_device_is_corrupted( p_tracker->defer_io->snapstore_device )){
-            log_err_format( "Unable to freeze devices [%d:%d]: snapshot data is corrupted", dev_id );
+            log_err_format( "Unable to freeze devices [%d:%d]: snapshot data is corrupted", MAJOR(dev_id), MINOR(dev_id) );
             result = -EDEADLK;
             break;
         }

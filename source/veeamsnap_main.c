@@ -38,7 +38,8 @@
 
 static int g_param_zerosnapdata = 0;
 static int g_param_debuglogging = 0;
-static char* g_logdir = NULL; //"/var/log/veeam";
+static char* g_logdir = NULL; 
+static unsigned long g_param_logmaxsize = 15*1024*1024;
 #ifdef PERSISTENT_CBT
 static char* g_cbtdata = NULL;
 #endif
@@ -101,6 +102,19 @@ int set_params(char* param_name, char* param_value)
         }else
             res = -ENOMEM;
     }
+    else if (0 == strcmp(param_name, "logmaxsize")) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)
+        {
+            char* endptr = NULL;
+            g_param_logmaxsize = simple_strtoul(param_value, &endptr, 10);
+        }
+#else
+        res = kstrtoul(param_value, 10, &g_param_logmaxsize);
+        if (SUCCESS != res) {
+            log_err_s("Failed to parse: ", param_value);
+            return res;
+        }
+#endif
 #ifdef PERSISTENT_CBT
     else if (0 == strcmp(param_name, "cbtdata")){
         char* old_value = g_cbtdata;
@@ -266,7 +280,7 @@ int __init veeamsnap_init(void)
 #ifdef VEEAMSNAP_MEMORY_LEAK_CONTROL
     dbg_mem_init( );
 #endif
-    logging_init( g_logdir );
+    logging_init( g_logdir, g_param_logmaxsize );
     log_tr( "================================================================================" );
     log_tr( "Loading" );
     log_tr_s( "Version: ", FILEVER_STR );
@@ -279,6 +293,7 @@ int __init veeamsnap_init(void)
     log_tr_d("snapstore_block_size_pow: ", g_param_snapstore_block_size_pow);
     log_tr_d("change_tracking_block_size_pow: ", g_param_change_tracking_block_size_pow);
     log_tr_s("logdir: ", g_logdir);
+    log_tr_ld("logmaxsize: ", g_param_logmaxsize);
 #ifdef PERSISTENT_CBT
     log_tr_s("cbtdata: ", g_cbtdata);
 #endif
@@ -530,6 +545,9 @@ MODULE_PARM_DESC( debuglogging, "Logging level switch." );
 
 module_param_named(logdir, g_logdir, charp, 0644);
 MODULE_PARM_DESC( logdir, "Directory for module logs." );
+
+module_param_named( logmaxsize, g_param_logmaxsize, ulong, 0644 );
+MODULE_PARM_DESC( logmaxsize, "Maximum log file size." );
 
 #ifdef PERSISTENT_CBT
 module_param_named(cbtdata, g_cbtdata, charp, 0644);
