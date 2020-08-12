@@ -39,6 +39,12 @@ int tracker_queue_ref(    struct request_queue* queue, tracker_queue_t** ptracke
     int find_result = SUCCESS;
     tracker_queue_t* tr_q = NULL;
 
+    if (queue->make_request_fn == NULL)
+    {
+        log_err("Cannot make hook. make_request_fn is NULL.");
+        return -EINVAL;
+    }
+
     find_result = tracker_queue_find(queue, &tr_q);
     if (SUCCESS == find_result){
         log_tr("Tracker queue already exists");

@@ -37,6 +37,7 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 
     if (SUCCESS == tracker_queue_find(q, &tracker_queue)){
         //find tracker by queue
+        BUG_ON((tracker_queue->original_make_request_fn == NULL));
 
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
         if ( bio->bi_rw & WRITE ){// only write request processed
