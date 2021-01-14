@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include "blk_util.h"
 #include "blk_redirect.h"
@@ -502,8 +504,13 @@ int blk_dev_redirect_read_zeroed( blk_redirect_bio_endio_t* rq_endio, struct blo
 
 void blk_redirect_complete( blk_redirect_bio_endio_t* rq_endio, int res )
 {
-    rq_endio->complete_cb( rq_endio->complete_param, rq_endio->bio, res );
-    queue_content_sl_free( &rq_endio->content );
+    void* complete_param = rq_endio->complete_param;
+    struct bio* bio = rq_endio->bio;
+    redirect_bio_endio_complete_cb* complete_cb = rq_endio->complete_cb;
+
+    queue_content_sl_free(&rq_endio->content);
+
+    complete_cb( complete_param, bio, res );
 }
 
 #endif //SNAPDATA_ZEROED

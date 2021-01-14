@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 #include "container_spinlocking.h"
 #include "tracker_queue.h"
@@ -45,6 +47,10 @@ int snapdata_collect_LocationGet( dev_t dev_id, rangelist_t* rangelist, size_t* 
 int snapdata_collect_LocationComplete( dev_t dev_id );
 
 int snapdata_collect_Get( dev_t dev_id, snapdata_collector_t** p_collector );
+#ifdef HAVE_BLK_INTERPOSER
+int snapdata_collect_Find(struct bio *bio, snapdata_collector_t** p_collector);
+#else
 int snapdata_collect_Find( struct request_queue *q, struct bio *bio, snapdata_collector_t** p_collector );
+#endif
 void snapdata_collect_Process( snapdata_collector_t* collector, struct bio *bio );
 

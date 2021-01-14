@@ -1,0 +1,196 @@
+From 71e21b5e3941f4c0cacad47cc119141ca7fd2a66 Mon Sep 17 00:00:00 2001
+From: Sergei Shtepa <sergei.shtepa@veeam.com>
+Date: Fri, 11 Dec 2020 19:01:19 +0300
+Subject: [PATCH 03/14] block: blk_interposer - change attach/detach logic
+
+Changes:
+  * ip_submit_bio() does not return a value.
+  * The blk_disk_freeze() and blk_disk_unfreeze() functions have been
+    added.
+  * blk_interposer_attach() and blk_interposer_detach() do not freeze
+    the disk queue.
+  * ip_holder was added to blk_interposer.
+Signed-off-by: Sergei Shtepa <sergei.shtepa@veeam.com>
+---
+ block/blk-core.c      | 10 +++----
+ block/genhd.c         | 68 +++++++++++++++++++++++++++++++------------
+ include/linux/genhd.h | 17 ++++++-----
+ 3 files changed, 63 insertions(+), 32 deletions(-)
+
+diff --git a/block/blk-core.c b/block/blk-core.c
+index 130f0124d939..07f57982a607 100644
+--- a/block/blk-core.c
++++ b/block/blk-core.c
+@@ -1042,15 +1042,13 @@ static blk_qc_t __submit_bio_interposed(struct bio *bio)
+ 		bio_set_flag(bio, BIO_INTERPOSED);
+ 		if (likely(blk_has_interposer(disk))) {
+ 			struct blk_interposer *ip = disk->interposer;
+-			ret = ip->ip_submit_bio(ip, bio);
+ 
+-			if (ret == BLK_QC_T_NONE)
+-				blk_queue_exit(disk->queue);
+-		} else {
++			ip->ip_submit_bio(ip, bio);
++		} else
+ 			/* interposer was removed */
+ 			bio_list_add(&current->bio_list[0], bio);
+-			blk_queue_exit(bio->bi_disk->queue);
+-		}
++
++		blk_queue_exit(disk->queue);
+ 	}
+ 	current->bio_list = NULL;
+ 
+diff --git a/block/genhd.c b/block/genhd.c
+index 17b43e2ed06a..9e3d4cba53e9 100644
+--- a/block/genhd.c
++++ b/block/genhd.c
+@@ -2365,56 +2365,86 @@ static void disk_release_events(struct gendisk *disk)
+ 	kfree(disk->ev);
+ }
+ 
++/**
++ *
++ */
++void blk_disk_freeze(struct gendisk *disk)
++{
++	blk_mq_freeze_queue(disk->queue);
++	blk_mq_quiesce_queue(disk->queue);
++}
++EXPORT_SYMBOL_GPL(blk_disk_freeze);
++
++/**
++ *
++ */
++void blk_disk_unfreeze(struct gendisk *disk)
++{
++	blk_mq_unquiesce_queue(disk->queue);
++	blk_mq_unfreeze_queue(disk->queue);
++}
++EXPORT_SYMBOL_GPL(blk_disk_unfreeze);
++
+ /**
+  * blk_interposer_attach - Attach interposer to disk
+  * @disk: target disk
+  * @interposer: block device interposer
++ * @ip_submit_bio: hook for submit_bio()
+  *
+  * Returns:
+  *     -EINVAL if @interposer is NULL.
+  *     -ENODEV if interposer is not initialized,
+  *     -EBUSY if the block device already has interposer.
++ *
++ * Disk must be frozen by blk_disk_freeze() and unfrozen blk_disk_unfreeze().
+  */
+-int blk_interposer_attach(struct gendisk *disk,
+-			  struct blk_interposer *interposer)
++int blk_interposer_attach(struct gendisk *disk, struct blk_interposer *interposer,
++			  const ip_submit_bio_t ip_submit_bio, const char *ip_holder)
+ {
+-	int ret = 0;
+-
+ 	if (!interposer)
+ 		return -EINVAL;
+ 
+-	blk_mq_freeze_queue(disk->queue);
+-	blk_mq_quiesce_queue(disk->queue);
+ 	if (blk_has_interposer(disk))
+-		ret = -EBUSY;
+-	else
+-		disk->interposer = interposer;
+-	blk_mq_unquiesce_queue(disk->queue);
+-	blk_mq_unfreeze_queue(disk->queue);
++		return -EBUSY;
+ 
+-	return ret;
++	interposer->ip_submit_bio = ip_submit_bio;
++
++	strncpy(interposer->ip_holder, ip_holder, sizeof(interposer->ip_holder));
++	interposer->ip_holder[sizeof(interposer->ip_holder)-1] = '\0';
++
++	disk->interposer = interposer;
++
++	return 0;
+ }
+ EXPORT_SYMBOL_GPL(blk_interposer_attach);
+ 
+ /**
+  * blk_interposer_detach - Detach interposer from disk
+  * @disk: target disk
++ * @ip_submit_bio: hook for submit_bio()
+  *
+- * Returns the attached interposer or NULL if none was attached.
++ * Returns the attached interposer or error number if it was not attached,
++ * or a foreign interposer was attached.
++ * Disk must be frozen by blk_disk_freeze() and unfrozen blk_disk_unfreeze().
+  */
+-struct blk_interposer *blk_interposer_detach(struct gendisk *disk)
++struct blk_interposer *blk_interposer_detach(struct gendisk *disk,
++					     const ip_submit_bio_t ip_submit_bio)
+ {
+ 	struct blk_interposer *interposer;
+ 
+ 	if (WARN_ON(!disk))
+-		return NULL;
++		return ERR_PTR(-EINVAL);
++
++	/* Check if the interposer is still available. */
++	if (!disk->interposer)
++		return ERR_PTR(-ENOENT);
++
++	/* Check if it is really our interposer. */
++	if (disk->interposer->ip_submit_bio != ip_submit_bio)
++		return ERR_PTR(-EPERM);
+ 
+-	blk_mq_freeze_queue(disk->queue);
+-	blk_mq_quiesce_queue(disk->queue);
+ 	interposer = disk->interposer;
+ 	disk->interposer = NULL;
+-	blk_mq_unquiesce_queue(disk->queue);
+-	blk_mq_unfreeze_queue(disk->queue);
+ 
+ 	return interposer;
+ }
+diff --git a/include/linux/genhd.h b/include/linux/genhd.h
+index f58ab391deda..2ec44fdff19d 100644
+--- a/include/linux/genhd.h
++++ b/include/linux/genhd.h
+@@ -165,12 +165,11 @@ struct blk_integrity {
+ };
+ 
+ struct blk_interposer;
+-typedef blk_qc_t (*ip_submit_bio_t) (struct blk_interposer *ip, struct bio *bio);
++typedef void (*ip_submit_bio_t) (struct blk_interposer *ip, struct bio *bio);
+ 
+ struct blk_interposer {
+-	struct gendisk *ip_disk;
+ 	ip_submit_bio_t ip_submit_bio;
+-	void *ip_private;
++	char ip_holder[32];
+ };
+ 
+ struct gendisk {
+@@ -420,12 +419,16 @@ static inline dev_t blk_lookup_devt(const char *name, int partno)
+ #endif /* CONFIG_BLOCK */
+ 
+ /*
+- * Block device interposing
++ * block layer interposer
+  */
+ #define blk_has_interposer(d) ((d)->interposer != NULL)
+-#define blk_interposer_active(ip) ((ip)->ip_disk != NULL)
+ 
+-int blk_interposer_attach(struct gendisk *, struct blk_interposer *);
+-struct blk_interposer * blk_interposer_detach(struct gendisk *);
++void blk_disk_freeze(struct gendisk *disk);
++void blk_disk_unfreeze(struct gendisk *disk);
++
++int blk_interposer_attach(struct gendisk *disk, struct blk_interposer *interposer,
++			  const ip_submit_bio_t ip_submit_bio, const char *ip_holder);
++struct blk_interposer *blk_interposer_detach(struct gendisk *disk,
++					     const ip_submit_bio_t ip_submit_bio);
+ 
+ #endif /* _LINUX_GENHD_H */
+-- 
+2.20.1
+

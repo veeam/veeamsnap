@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 
 typedef struct queue_sl_s
@@ -36,5 +38,5 @@ bool queue_sl_active( queue_sl_t* queue, bool state );
 #define queue_sl_empty( queue ) \
     (atomic_read( &(queue).in_queue_cnt ) == 0)
 
-#define queue_sl_unactive( queue ) \
+#define queue_sl_is_unactive( queue ) \
     ( (atomic_read( &((queue).active_state) ) == false) && (atomic_read( &((queue).alloc_cnt) ) == 0) )

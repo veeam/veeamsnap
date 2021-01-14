@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include "tracking.h"
 
@@ -11,6 +13,69 @@
 
 #define SECTION "tracking  "
 #include "log_format.h"
+
+#ifdef HAVE_BLK_INTERPOSER
+/**
+ * tracking_submit_bio() - Intercept bio by blk_interposer
+ */
+bool tracking_submit_bio(struct blk_interposer *interposer, struct bio *bio)
+{
+    bool was_catched = false;
+
+    tracker_queue_t* tracker_queue = NULL;
+    snapdata_collector_t* collector = NULL;
+    tracker_t* tracker = NULL;
+    sector_t bi_sector = bio_bi_sector(bio);
+    unsigned int bi_size = bio_bi_size(bio);;
+
+    bio_get(bio);
+    tracker_queue = container_of(interposer, tracker_queue_t, interposer);
+
+    if (SUCCESS == tracker_find_by_queue_and_sector(tracker_queue, bi_sector, &tracker)) {
+
+        //find tracker by queue
+        if (op_is_write(bio_op(bio))) {// only write request processed
+            if (SUCCESS == snapdata_collect_Find(bio, &collector))
+                snapdata_collect_Process(collector, bio);
+        }
+
+        if ((bio->bi_end_io != blk_direct_bio_endio) &&
+            (bio->bi_end_io != blk_redirect_bio_endio) &&
+            (bio->bi_end_io != blk_deferred_bio_endio)) {
+
+            if (tracker->is_unfreezable)
+                down_read(&tracker->unfreezable_lock);
+
+            if (atomic_read(&tracker->is_captured)) {
+                // do copy-on-write
+                int res = defer_io_redirect_bio(tracker->defer_io, bio, tracker);
+                if (SUCCESS == res)
+                    was_catched = true;
+            }
+
+            if (tracker->is_unfreezable)
+                up_read(&tracker->unfreezable_lock);
+        }
+
+        if (!was_catched) {
+            bool cbt_locked = false;
+
+            if (tracker && bio_data_dir(bio) && bio_has_data(bio)) {
+                cbt_locked = tracker_cbt_bitmap_lock(tracker);
+                if (cbt_locked)
+                    tracker_cbt_bitmap_set(tracker, bi_sector, sector_from_size(bi_size));
+            }
+            if (cbt_locked)
+                tracker_cbt_bitmap_unlock(tracker);
+        }
+    }
+
+    bio_put(bio);
+
+    return was_catched;
+}
+
+#else //HAVE_BLK_INTERPOSER
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
 
@@ -118,6 +183,7 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
         log_err("CRITICAL! Cannot find tracker queue");
 
     bio_put(bio);
+
 #if  LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
 
 #ifdef HAVE_MAKE_REQUEST_INT
@@ -128,6 +194,8 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
     return result;
 #endif
 }
+
+#endif //HAVE_BLK_INTERPOSER
 
 int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long long snapshot_id)
 {
@@ -151,7 +219,7 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
             else{
                 tracker_cbt_start(tracker, snapshot_id, cbt_map);
 #ifdef PERSISTENT_CBT
-                cbt_persistent_register(tracker->original_dev_id, tracker->cbt_map);                
+                cbt_persistent_register(tracker->original_dev_id, tracker->cbt_map);
 #endif
                 result = -EALREADY;
             }
@@ -201,11 +269,15 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
             sectStart = blk_dev_get_start_sect(target_dev);
             sectEnd = blk_dev_get_capacity(target_dev) + sectStart;
 
-            if (SUCCESS == tracker_queue_find(target_dev->bd_disk->queue, &tracker_queue)){// can be only one
+#ifdef HAVE_BLK_INTERPOSER
+            if (SUCCESS == tracker_queue_find(target_dev->bd_disk, &tracker_queue)) {
+#else //HAVE_BLK_INTERPOSER
+            if (SUCCESS == tracker_queue_find(target_dev->bd_disk->queue, &tracker_queue)) {// can be only one
+#endif
                 tracker_t* old_tracker = NULL;
 
                 if (SUCCESS == tracker_find_intersection(tracker_queue, sectStart, sectEnd, &old_tracker)){
-                    log_warn_format("Removing the device [%d:%d] from tracking", 
+                    log_warn_format("Removing the device [%d:%d] from tracking",
                         MAJOR(old_tracker->original_dev_id), MINOR(old_tracker->original_dev_id));
 
                     result = tracker_remove(old_tracker);
@@ -247,7 +319,7 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
     else
         log_err_format( "Unable to add device [%d:%d] under tracking: invalid trackers container. errno=%d",
             MAJOR( dev_id ), MINOR( dev_id ), result );
-    
+
 
     return result;
 }

@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 
 #ifdef PERSISTENT_CBT
@@ -197,7 +199,7 @@ static int _cbt_prst_load_reg(cbt_storage_accessor_t* accessor, cbt_prst_reg_t**
                 break;
             }
             {//#0x18
-                res = cbt_storage_read(accessor, (void*)cbt_map->generationId.b, sizeof(veeam_uuid_t));
+                res = cbt_storage_read(accessor, (void*)cbt_map->generationId_active.b, sizeof(veeam_uuid_t));
                 if (res != SUCCESS)
                     return res;
             }
@@ -291,7 +293,7 @@ static int _cbt_prst_store_reg(cbt_storage_accessor_t* accessor, cbt_prst_reg_t*
         }
 
         log_tr_dev_t("Store persistent CBT register for device ", reg->dev_id);
-        log_tr_uuid("CBT generation id ", &cbt_map->generationId);
+        log_tr_uuid("CBT generation id ", &cbt_map->generationId_active);
         log_tr_ld("Snapshot number ", cbt_map->snap_number_active);
 
         {//#0x00
@@ -318,7 +320,7 @@ static int _cbt_prst_store_reg(cbt_storage_accessor_t* accessor, cbt_prst_reg_t*
                 break;
         }
         {//#0x18
-            res = cbt_storage_write(accessor, (void*)cbt_map->generationId.b, sizeof(veeam_uuid_t));
+            res = cbt_storage_write(accessor, (void*)cbt_map->generationId_active.b, sizeof(veeam_uuid_t));
             if (res != SUCCESS)
                 break;
         }
@@ -421,7 +423,7 @@ static int _cbt_prst_load_all_register(cbt_storage_accessor_t* accessor)
         if (res == SUCCESS){
             log_tr_dev_t("Create persistent CBT register for device ", reg->dev_id);
 
-            log_tr_uuid("CBT generation id ", &reg->cbt_map->generationId);
+            log_tr_uuid("CBT generation id ", &reg->cbt_map->generationId_active);
             log_tr_ld("Snapshot number ", reg->cbt_map->snap_number_active);
 
             ++reg_counter;
@@ -517,7 +519,7 @@ static int _cbt_prst_treacker_create(dev_t dev_id, cbt_map_t* cbt_map)
 static int _cbt_prst_start_tracker(dev_t dev_id)
 {
     int res = ENODEV;
-    log_tr_dev_t("[TBD] Start tracking for device ", dev_id);
+    log_tr_dev_t(" Starting device tracking for device ", dev_id);
     down_read(&_cbt_prst_registers_list.lock);
     if (!list_empty(&_cbt_prst_registers_list.headlist)){
         struct list_head* _current_list_head;
@@ -575,55 +577,50 @@ static void _cbt_prst_try_start_tracker_for_notified_device(cbt_notify_dev_t* de
 
 static int _cbt_prst_load(void)
 {
-    cbt_storage_accessor_t* accessor = NULL;
     int res = SUCCESS;
+    cbt_storage_accessor_t accessor_data = { 0 };
+    cbt_storage_accessor_t* accessor = &accessor_data;
 
     if (_cbt_is_load)
         return EALREADY;
 
     log_tr("Loading persistent CBT data");
 
-    accessor = dbg_kzalloc(sizeof(cbt_storage_accessor_t), GFP_KERNEL);
-    if (accessor == NULL){
-        log_err("Not enough memory");
-        return -ENOMEM;
-    }
-
     res = cbt_storage_open(&_cbt_params, accessor);
-    if (res == SUCCESS){
-        BUG_ON(NULL == accessor->device);
-        BUG_ON(NULL == accessor->pg);
-        do{
-            res = cbt_storage_check(accessor);
-            if (res != SUCCESS){
-                log_err("Corrupted persistent CBT data");
-                break;
-            }
-
-            res = cbt_storage_prepare4read(accessor);
-            if (res < SUCCESS){
-                log_err("Corrupted persistent CBT data");
-                break;
-            }
-            else if (res == ENODATA){
-                log_tr("Empty persistent CBT data");
-                res = SUCCESS;
-                break;
-            }
-
-            res = _cbt_prst_load_all_register(accessor);
-            if (res != SUCCESS){
-                log_err("Failed to load persistent CBT data registers");
-                break;
-            }
-            _cbt_is_load = true;
-        } while (false);
-        cbt_storage_close(accessor);
-    }else
+    if (res != SUCCESS) {
         log_err("Cannot open persistent CBT data");
+        return res;
+    }
+    
+    BUG_ON(NULL == accessor->device);
+    BUG_ON(NULL == accessor->pg);
+    BUG_ON(NULL == accessor->page);
+    do {
+        res = cbt_storage_check(accessor);
+        if (res != SUCCESS) {
+            log_err("Corrupted persistent CBT data");
+            break;
+        }
 
-    dbg_kfree(accessor);
-    accessor = NULL;
+        res = cbt_storage_prepare4read(accessor);
+        if (res < SUCCESS) {
+            log_err("Corrupted persistent CBT data");
+            break;
+        }
+        else if (res == ENODATA) {
+            log_tr("Empty persistent CBT data");
+            res = SUCCESS;
+            break;
+        }
+
+        res = _cbt_prst_load_all_register(accessor);
+        if (res != SUCCESS) {
+            log_err("Failed to load persistent CBT data registers");
+            break;
+        }
+        _cbt_is_load = true;
+    } while (false);
+    cbt_storage_close(accessor);
 
     if (res != SUCCESS)
         log_err("Failed to load persistent CBT data");
@@ -696,71 +693,65 @@ int cbt_persistent_store(void)
 {
     int res = SUCCESS;
 
-    cbt_storage_accessor_t* accessor = dbg_kzalloc(sizeof(cbt_storage_accessor_t), GFP_KERNEL);
-    if (accessor == NULL){
-        log_err("Failed to allocate CBT storage accessor. Not enough memory");
-        return -ENOMEM;
-    }
+    cbt_storage_accessor_t accessor_data = { 0 };
+    cbt_storage_accessor_t* accessor = &accessor_data;
 
     res = cbt_storage_open(&_cbt_params, accessor);
-    if (res == SUCCESS){
-        do{
-            res = cbt_storage_check(accessor);
-            if (res != SUCCESS){
-                log_err("Corrupted persistent CBT data");
-                break;
-            }
-
-            res = cbt_storage_prepare4write(accessor);
-            if (res != SUCCESS){
-                log_err("Corrupted persistent CBT data");
-                break;
-            }
-
-            res = _cbt_prst_store_all_register(accessor);
-            if (res != SUCCESS){
-                log_err("Failed to store persistent CBT data registers");
-                break;
-            }
-
-            res = cbt_storage_write_finish(accessor);
-            if (res != SUCCESS){
-                log_err("Failed to store persistent CBT data registers");
-                break;
-            }
-        } while (false);
-        cbt_storage_close(accessor);
-    }else
+    if (res != SUCCESS) {
         log_err("Cannot open persistent CBT data");
-   
-    dbg_kfree(accessor);
+        return res;
+    }
+
+    do {
+        res = cbt_storage_check(accessor);
+        if (res != SUCCESS) {
+            log_err("Corrupted persistent CBT data");
+            break;
+        }
+
+        res = cbt_storage_prepare4write(accessor);
+        if (res != SUCCESS) {
+            log_err("Corrupted persistent CBT data");
+            break;
+        }
+
+        res = _cbt_prst_store_all_register(accessor);
+        if (res != SUCCESS) {
+            log_err("Failed to store persistent CBT data registers");
+            break;
+        }
+
+        res = cbt_storage_write_finish(accessor);
+        if (res != SUCCESS) {
+            log_err("Failed to store persistent CBT data registers");
+            break;
+        }
+    } while (false);
+    cbt_storage_close(accessor);
 
     if (res != SUCCESS)
         log_err("Failed to store persistent CBT data");
     return res;
 }
 
-int cbt_persistent_init(const char* cbtdata)
+void cbt_persistent_cbtdata_free(void)
+{
+    rangevector_done(&_cbt_params.rangevector);
+    _cbt_params.dev_id = 0;
+}
+
+int cbt_persistent_cbtdata_new(const char* cbtdata)
 {
     int res = SUCCESS;
-    
-    INIT_LIST_HEAD(&_cbt_prst_registers_list.headlist);
-    init_rwsem(&_cbt_prst_registers_list.lock);
 
-    cbt_notify_init();
-
-	if (cbtdata == NULL) {
-		log_warn("Persistent CBT parameters are not set");
-		return ENODATA;
-	}
+    if (_cbt_params.dev_id != 0)
+        cbt_persistent_cbtdata_free();
 
     log_tr("Parsing persistent CBT parameters");
     res = cbt_prst_parse_parameters(cbtdata, &_cbt_params);
-    if (res != SUCCESS){
+    if (res != SUCCESS)
         log_err_d("Failed to parse CBT persistent parameters. errcode=", res);
-        return res;
-    }
-
+    else 
     {//DEBUG! Show CBT data location
         range_t* p_range = NULL;
 
@@ -774,7 +765,22 @@ int cbt_persistent_init(const char* cbtdata)
         RANGEVECTOR_READ_UNLOCK(&_cbt_params.rangevector);
     }
 
-    return SUCCESS;
+    return res;
+}
+
+int cbt_persistent_init(const char* cbtdata)
+{
+    INIT_LIST_HEAD(&_cbt_prst_registers_list.headlist);
+    init_rwsem(&_cbt_prst_registers_list.lock);
+
+    cbt_notify_init();
+
+	if (cbtdata == NULL) {
+		log_warn("Persistent CBT parameters are not set");
+		return ENODATA;
+	}
+
+    return cbt_persistent_cbtdata_new(cbtdata);
 }
 
 void cbt_persistent_done(void )
@@ -787,8 +793,7 @@ void cbt_persistent_done(void )
             if (res != SUCCESS)
                 log_err_d("Failed to store persistent CBT data. Error code ", res);
         }
-        rangevector_done(&_cbt_params.rangevector);
-        _cbt_params.dev_id = 0;
+        cbt_persistent_cbtdata_free();
     }
 
     down_write(&_cbt_prst_registers_list.lock);
@@ -850,6 +855,22 @@ void cbt_persistent_unregister(dev_t dev_id)
 }
 
 
+bool cbt_persistent_device_filter(dev_t dev_id)
+{
+    //processing filter
+    switch (MAJOR(dev_id)) //https://www.kernel.org/doc/Documentation/admin-guide/devices.txt
+    {
+    case 2: //floppy
+        return false;
+    case 7: //loopback devices
+        return false;
+    case 11://CD-ROM
+        return false;
+
+    default:
+        return true;
+    }
+}
 
 void cbt_persistent_device_attach(char* dev_name, char* dev_path)
 {
@@ -872,6 +893,12 @@ void cbt_persistent_device_attach(char* dev_name, char* dev_path)
             return;
         }
 
+        dev_id = bdev->bd_dev;
+        if (!cbt_persistent_device_filter(dev_id))
+            return;
+
+        log_tr_dev_t("Found device ", dev_id);
+
         //disk information
         if (bdev->bd_disk)
             log_tr_s("Found disk ", bdev->bd_disk->disk_name);
@@ -880,9 +907,9 @@ void cbt_persistent_device_attach(char* dev_name, char* dev_path)
         if (bdev->bd_part != NULL){
             struct hd_struct *	bd_part = bdev->bd_part;
 
-            log_tr_d("Partition # ", bd_part->partno);
-            log_tr_sect("Partition sector start at ", bd_part->start_sect);
-            log_tr_sect("Partition sector size ", bd_part->nr_sects);
+            //log_tr_d("Partition # ", bd_part->partno);
+            //log_tr_sect("Partition sector start at ", bd_part->start_sect);
+            //log_tr_sect("Partition sector size ", bd_part->nr_sects);
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36)
             if (bd_part->info){
@@ -895,8 +922,7 @@ void cbt_persistent_device_attach(char* dev_name, char* dev_path)
 #endif
         }
 
-        dev_id = bdev->bd_dev;
-        log_tr_dev_t("DEBUG! Found device ", dev_id);
+
     }
 
     // Lock allows only one block device to be processed at a time

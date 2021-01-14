@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include "tracker.h"
 #ifdef PERSISTENT_CBT
@@ -23,7 +25,7 @@ int tracker_done(void )
     if (SUCCESS == result){
         if (SUCCESS != container_sl_done( &trackers_container ))
             log_err( "Failed to free up trackers container" );
-        
+
         }
     else
         log_err("Failed to remove all tracking devices from tracking");
@@ -31,7 +33,7 @@ int tracker_done(void )
     return result;
 }
 
-int tracker_find_by_queue_and_sector( tracker_queue_t* queue, sector_t sector, tracker_t** ptracker )
+int tracker_find_by_queue_and_sector(tracker_queue_t* queue, sector_t sector, tracker_t** ptracker )
 {
     int result = -ENODATA;
 
@@ -157,7 +159,7 @@ int tracker_enum_cbt_info( int max_count, struct cbt_info_s* p_cbt_info, int* p_
             if (tracker->cbt_map){
                 p_cbt_info[count].cbt_map_size = tracker->cbt_map->map_size;
                 p_cbt_info[count].snap_number = (unsigned char)tracker->cbt_map->snap_number_previous;
-                veeam_uuid_copy((veeam_uuid_t*)(p_cbt_info[count].generationId), &tracker->cbt_map->generationId);
+                veeam_uuid_copy((veeam_uuid_t*)(p_cbt_info[count].generationId), &tracker->cbt_map->generationId_previous);
             }
             else{
                 p_cbt_info[count].cbt_map_size = 0;
@@ -196,7 +198,7 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
     atomic_set( &tracker->is_captured, false);
     tracker->is_unfreezable = false;
     init_rwsem(&tracker->unfreezable_lock);
-    
+
     //tracker->put_super = NULL;
     //tracker->sb = NULL;
 
@@ -209,10 +211,9 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
         struct super_block* superblock = NULL;
 
         log_tr_format( "Create tracker for device [%d:%d]. Start 0x%llx sector, capacity 0x%llx sectors",
-            MAJOR( tracker->original_dev_id ), MINOR( tracker->original_dev_id ), 
+            MAJOR( tracker->original_dev_id ), MINOR( tracker->original_dev_id ),
             (unsigned long long)blk_dev_get_start_sect( tracker->target_dev ),
             (unsigned long long)blk_dev_get_capacity(tracker->target_dev));
-
 
         if (cbt_map == NULL){
             cbt_map = cbt_map_create(cbt_block_size_degree-SECTOR_SHIFT, blk_dev_get_capacity(tracker->target_dev));
@@ -233,7 +234,11 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
             tracker->is_unfreezable = true;
             break;
         }
+#ifdef HAVE_BLK_INTERPOSER
+        result = tracker_queue_ref(tracker->target_dev->bd_disk, &tracker->tracker_queue);
+#else
         result = tracker_queue_ref( bdev_get_queue( tracker->target_dev ), &tracker->tracker_queue );
+#endif
         superblock = blk_thaw_bdev( tracker->original_dev_id, tracker->target_dev, superblock );
 
     }while(false);
@@ -262,7 +267,7 @@ int _tracker_remove( tracker_t* tracker )
     if (NULL != tracker->target_dev){
 
         struct super_block* superblock = NULL;
-   
+
         if (tracker->is_unfreezable)
             down_write(&tracker->unfreezable_lock);
         else

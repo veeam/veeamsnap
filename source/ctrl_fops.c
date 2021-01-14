@@ -19,6 +19,7 @@
 
 #define SECTION "ctrl_fops "
 #include "log_format.h"
+#include "cbt_persistent.h"
 
 static atomic_t g_dev_open_cnt = ATOMIC_INIT( 0 );
 
@@ -45,6 +46,11 @@ ssize_t ctrl_read(struct file *fl, char __user *buffer, size_t length, loff_t *o
     ssize_t bytes_read = 0;
     ctrl_pipe_t* pipe = (ctrl_pipe_t*)fl->private_data;
 
+    if (NULL == pipe) {
+        log_err("Unable to read from pipe: invalid pipe pointer");
+        return -EINVAL;
+    }
+
     bytes_read = ctrl_pipe_read( pipe, buffer, length );
     if (bytes_read == 0)
         if (fl->f_flags & O_NONBLOCK)
@@ -56,22 +62,25 @@ ssize_t ctrl_read(struct file *fl, char __user *buffer, size_t length, loff_t *o
 
 ssize_t ctrl_write( struct file *fl, const char __user *buffer, size_t length, loff_t *offset )
 {
-    ssize_t bytes_wrote = 0;
-
     ctrl_pipe_t* pipe = (ctrl_pipe_t*)fl->private_data;
+
     if (NULL == pipe){
         log_err( "Unable to write into pipe: invalid pipe pointer" );
-        bytes_wrote = -EINVAL;
+        return -EINVAL;
     }
 
-    bytes_wrote = ctrl_pipe_write( pipe, buffer, length );
-    return bytes_wrote;
+    return ctrl_pipe_write(pipe, buffer, length);
 }
 
 
 unsigned int ctrl_poll( struct file *fl, struct poll_table_struct *wait )
 {
     ctrl_pipe_t* pipe = (ctrl_pipe_t*)fl->private_data;
+
+    if (NULL == pipe) {
+        log_err("Unable to poll pipe: invalid pipe pointer");
+        return -EINVAL;
+    }
 
     return ctrl_pipe_poll( pipe );
 }
@@ -683,6 +692,47 @@ int ioctl_collect_snapimages( unsigned long arg )
     return status;
 }
 
+int ioctl_persistentcbt_data(unsigned long arg)
+{
+    int status = SUCCESS;
+    struct ioctl_persistentcbt_data_s param;
+    char* cbtdata = NULL;
+
+    if (0 != copy_from_user(&param, (void*)arg, sizeof(struct ioctl_persistentcbt_data_s))) {
+        log_err("[TBD]Unable to receive persistent cbt data. Invalid input parameters.");
+        return -ENODATA;
+    }
+
+    if ( (param.size == 0) || (param.size == 1) || (param.parameter == NULL) )
+    {
+        log_tr("[TBD]Cleanup persistent CBT data parameter");
+        cbt_persistent_cbtdata_free();
+    }
+    else 
+    {
+        cbtdata = dbg_kzalloc(param.size + 1, GFP_KERNEL);
+        if (cbtdata == NULL) {
+            log_err("[TBD]Unable to receive persistent cbt data. Not enough memory.");
+            return -ENOMEM;
+        }
+
+        do
+        {
+            if (0 != copy_from_user((void*)cbtdata, (void*)param.parameter, param.size)) {
+                log_err("[TBD]Unable to receive persistent cbt data. Invalid input parameters.");
+                status = -ENODATA;
+                break;
+            }
+
+            log_tr_s("[TBD]Setup persistent CBT data parameter: ", cbtdata);
+            status = cbt_persistent_cbtdata_new(cbtdata);
+
+        } while (false);
+        dbg_kfree(cbtdata);
+    }
+    return status;
+}
+
 int ioctl_printstate( unsigned long arg )
 {
     log_tr( "--------------------------------------------------------------------------" );
@@ -739,6 +789,7 @@ static veeam_ioctl_table_t veeam_ioctl_table[] =
     { (IOCTL_COLLECT_SNAPSHOTDATA_LOCATION_GET), ioctl_collect_snapshotdata_location_get, "IOCTL_COLLECT_SNAPSHOTDATA_LOCATION_GET" },
     { (IOCTL_COLLECT_SNAPSHOTDATA_LOCATION_COMPLETE), ioctl_collect_snapshotdata_location_complete, "IOCTL_COLLECT_SNAPSHOTDATA_LOCATION_COMPLETE" },
     { (IOCTL_COLLECT_SNAPSHOT_IMAGES), ioctl_collect_snapimages, "IOCTL_COLLECT_SNAPSHOT_IMAGES" },
+    { (IOCTL_PERSISTENTCBT_DATA), ioctl_persistentcbt_data, "IOCTL_PERSISTENTCBT_DATA" },
 
     { (IOCTL_PRINTSTATE), ioctl_printstate, "IOCTL_PRINTSTATE" },
     { 0, NULL, NULL}
@@ -772,6 +823,7 @@ static veeam_ioctl_table_t veeam_ioctl_table[] =
     { (IOCTL_COLLECT_SNAPSHOTDATA_LOCATION_GET), ioctl_collect_snapshotdata_location_get },
     { (IOCTL_COLLECT_SNAPSHOTDATA_LOCATION_COMPLETE), ioctl_collect_snapshotdata_location_complete },
     { (IOCTL_COLLECT_SNAPSHOT_IMAGES), ioctl_collect_snapimages },
+    { (IOCTL_PERSISTENTCBT_DATA), ioctl_persistentcbt_data },
     { (IOCTL_PRINTSTATE), ioctl_printstate },
     { 0, NULL }
 };

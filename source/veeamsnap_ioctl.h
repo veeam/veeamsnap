@@ -4,7 +4,8 @@
 
 #define MAX_TRACKING_DEVICE_COUNT    256
 
-#define VEEAM_SNAP    0x56730000  // 'sV' <-> "Vs"
+//#define VEEAM_SNAP 'V'
+#define VEEAM_SNAP    0x56730000  // for compatibility with 4.0
 
 #pragma pack(push,1)
 //////////////////////////////////////////////////////////////////////////
@@ -207,7 +208,7 @@ struct ioctl_snapstore_file_add_multidev_s
 };
 #define IOCTL_SNAPSTORE_FILE_MULTIDEV _IOR(VEEAM_SNAP, 0x2C, struct ioctl_snapstore_file_add_multidev_s)
 //////////////////////////////////////////////////////////////////////////
-// collect snapshot data location
+// collect snapshot images
 
 struct image_info_s{
     struct ioctl_dev_id_s original_dev_id;
@@ -223,7 +224,8 @@ struct ioctl_collect_shapshot_images_s{
 };
 #define IOCTL_COLLECT_SNAPSHOT_IMAGES _IOW(VEEAM_SNAP, 0x30, struct ioctl_collect_shapshot_images_s)
 
-
+//////////////////////////////////////////////////////////////////////////
+// collect snapshot data location
 struct ioctl_collect_snapshotdata_location_start_s{
     struct ioctl_dev_id_s dev_id;
     unsigned int magic_length;
@@ -251,6 +253,15 @@ struct ioctl_collect_snapshotdata_location_complete_s{
 };
 #define  IOCTL_COLLECT_SNAPSHOTDATA_LOCATION_COMPLETE _IOR(VEEAM_SNAP, 0x42, struct ioctl_collect_snapshotdata_location_complete_s )
 
+//////////////////////////////////////////////////////////////////////////
+// persistent CBT data parameter
+
+struct ioctl_persistentcbt_data_s
+{
+    unsigned int size;
+    const char* parameter;
+};
+#define  IOCTL_PERSISTENTCBT_DATA _IOR(VEEAM_SNAP, 0x48, struct ioctl_persistentcbt_data_s )
 
 //////////////////////////////////////////////////////////////////////////
 // debug and support

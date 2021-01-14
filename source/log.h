@@ -5,6 +5,10 @@
 int logging_init( const char* logdir, unsigned long logmaxsize );
 void logging_done( void );
 void logging_renew_check( void );
+void logging_mode_sys(void);
+void logging_mode_file(void);
+void logging_flush(void);
+
 void log_s( const char* section, const unsigned level, const char* str );
 void log_s_s( const char* section, const unsigned level, const char* str1, const char* str2 );
 void log_s_d( const char* section, const unsigned level, const char* str, const int d );

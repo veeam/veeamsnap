@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include "cbt_map.h"
 
@@ -71,8 +73,11 @@ int cbt_map_allocate( cbt_map_t* cbt_map, unsigned int cbt_sect_in_block_degree,
 
     cbt_map->snap_number_previous = 0;
     cbt_map->snap_number_active = 1;
-    veeam_generate_random_uuid( cbt_map->generationId.b );
+    veeam_generate_random_uuid( cbt_map->generationId_active.b );
+    veeam_uuid_copy(&cbt_map->generationId_previous, &cbt_map->generationId_active);
+
     cbt_map->active = true;
+    log_tr_uuid("New CBT generation ID: ", &cbt_map->generationId_active);
     
     cbt_map->state_changed_sectors = 0;
     cbt_map->state_dirty_sectors = 0;
@@ -136,17 +141,20 @@ void cbt_map_switch( cbt_map_t* cbt_map )
 
     page_array_memcpy( _get_readable( cbt_map ), _get_writable( cbt_map ) );
 
+    if (cbt_map->snap_number_active == 1)
+        veeam_uuid_copy(&cbt_map->generationId_previous, &cbt_map->generationId_active);
+
     cbt_map->snap_number_previous = cbt_map->snap_number_active;
     ++cbt_map->snap_number_active;
+
     if (256 == cbt_map->snap_number_active){
 
         cbt_map->snap_number_active = 1;
+        veeam_generate_random_uuid( cbt_map->generationId_active.b );
 
-        page_array_memset( _get_writable( cbt_map ), 0 );
+        page_array_memset(_get_writable(cbt_map), 0);
 
-        veeam_generate_random_uuid( cbt_map->generationId.b );
-
-        log_tr( "CBT reset" );
+        log_tr_uuid( "CBT reset. New generation ID:", &cbt_map->generationId_active);
     }
     _cbt_map_unlock( cbt_map );
 }
@@ -237,7 +245,9 @@ void cbt_print_state(cbt_map_t* cbt_map)
 
     log_tr_ld("snap_number_active=", cbt_map->snap_number_active);
     log_tr_ld("snap_number_previous=", cbt_map->snap_number_previous);
-    log_tr_uuid("generationId=", &cbt_map->generationId);
+
+    log_tr_uuid("generationId_active=", &cbt_map->generationId_active);
+    log_tr_uuid("generationId_previous=", &cbt_map->generationId_previous);
 
     if (cbt_map->active)
         log_tr("is active");

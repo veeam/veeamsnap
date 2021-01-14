@@ -1,6 +1,7 @@
 #
 # veeamsnap kernel module make file
 #
+KERNEL_RELEASE := $(shell uname -r)
 KERNEL_MODULE_NAME := veeamsnap
 
 KERNEL_MODULE_OBJECT_FILE_LIST := \
@@ -58,11 +59,11 @@ ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; awk '{
 
 # try to find kernel headers files
 include_linux = "."
-ifeq ($(shell test -e "/lib/modules/$(shell uname -r)/build/include/linux" && echo -n yes),yes) 
-include_linux = /lib/modules/$(shell uname -r)/build/include/linux
+ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/build/include/linux" && echo -n yes),yes) 
+include_linux = /lib/modules/$(KERNEL_RELEASE)/build/include/linux
 endif
-ifeq ($(shell test -e "/lib/modules/$(shell uname -r)/source/include/linux" && echo -n yes),yes) 
-include_linux = /lib/modules/$(shell uname -r)/source/include/linux
+ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/source/include/linux" && echo -n yes),yes) 
+include_linux = /lib/modules/$(KERNEL_RELEASE)/source/include/linux
 endif
 
 # try to find patch for lookup_bdev 
@@ -74,18 +75,18 @@ endif
 all:
 	@echo Making all...
 	@echo ccflags-y= $(ccflags-y)
-	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+	make -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules
 	@echo Completed.
 
 clean:
 	@echo Cleaning ...
-	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+	make -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) clean
 	@echo Completed.
 
 install:
 	@echo Installing veeamsnap kernel module
-	mkdir -p /lib/modules/$(shell uname -r)/kernel/drivers/veeam
-	cp $(KERNEL_MODULE_NAME).ko /lib/modules/$(shell uname -r)/kernel/drivers/veeam
+	mkdir -p /lib/modules/$(KERNEL_RELEASE)/kernel/drivers/veeam
+	cp $(KERNEL_MODULE_NAME).ko /lib/modules/$(KERNEL_RELEASE)/kernel/drivers/veeam
 	depmod
 	@echo Completed.
 

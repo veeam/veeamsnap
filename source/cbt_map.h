@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 
 #include "page_array.h"
@@ -19,7 +21,8 @@ typedef struct cbt_map_s
 
     volatile unsigned long snap_number_active;
     volatile unsigned long snap_number_previous;
-    veeam_uuid_t generationId;
+    veeam_uuid_t generationId_active;
+    veeam_uuid_t generationId_previous;
 
     volatile bool active;
 

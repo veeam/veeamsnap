@@ -3,6 +3,7 @@
 
 #define CBT_STORAGE_MAGIC "vcbtdata"
 
+#pragma pack(push,1)
 typedef struct cbt_storage_page_s
 {
     char magic[8];
@@ -13,14 +14,15 @@ typedef struct cbt_storage_page_s
     uint32_t padding0;
     unsigned char data[0];
 } cbt_storage_page_t;
+#pragma pack(pop)
 
 #define CBT_PAGE_DATA_SIZE (PAGE_SIZE - offsetof(cbt_storage_page_t, data))
 
+#pragma pack(push,8)
 typedef struct cbt_storage_accessor_s
 {
     struct block_device* device;
     rangevector_t* rangevector;
-
 
     struct page* pg;
     cbt_storage_page_t* page;
@@ -29,7 +31,6 @@ typedef struct cbt_storage_accessor_s
     unsigned long long page_number;
     unsigned long long used_page_count;
     size_t page_offset;
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
     struct timespec time;//cbt data time marker
 #else
@@ -37,7 +38,7 @@ typedef struct cbt_storage_accessor_s
 #endif
     unsigned long long padding;
 }cbt_storage_accessor_t;
-
+#pragma pack(pop)
 
 int cbt_storage_open(cbt_persistent_parameters_t* params, cbt_storage_accessor_t* accessor);
 void cbt_storage_close(cbt_storage_accessor_t* accessor);

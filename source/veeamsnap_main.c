@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include "version.h"
 #include "veeamsnap_ioctl.h"
@@ -16,6 +18,7 @@
 #include "snapshot.h"
 #include "tracker_queue.h"
 #include "tracker.h"
+#include "tracking.h"
 #include "sparse_bitmap.h"
 #include "ctrl_sysfs.h"
 
@@ -27,7 +30,6 @@
 #include "cbt_persistent.h"
 #endif
 
-
 #include <linux/reboot.h>       //use old methon
 //#include <linux/syscore_ops.h>    //more modern method
 
@@ -38,7 +40,7 @@
 
 static int g_param_zerosnapdata = 0;
 static int g_param_debuglogging = 0;
-static char* g_logdir = NULL; 
+static char* g_logdir = NULL;
 static unsigned long g_param_logmaxsize = 15*1024*1024;
 #ifdef PERSISTENT_CBT
 static char* g_cbtdata = NULL;
@@ -63,7 +65,7 @@ int inc_snapstore_block_size_pow(void)
 {
     if (g_param_snapstore_block_size_pow > 30)
         return -EFAULT;
-    
+
     ++g_param_snapstore_block_size_pow;
     return SUCCESS;
 }
@@ -160,7 +162,7 @@ int set_params(char* param_name, char* param_value)
     }
     else
         res = -EINVAL;
-    
+
     return res;
 }
 
@@ -247,6 +249,7 @@ struct syscore_ops _cbt_syscore_ops = {
 #ifdef _LINUX_REBOOT_H
 static int veeamsnap_shutdown_notify(struct notifier_block *nb, unsigned long type, void *p)
 {
+    logging_mode_sys(); //switch logger to system log
 
     switch (type) {
     case SYS_HALT:
@@ -260,6 +263,7 @@ static int veeamsnap_shutdown_notify(struct notifier_block *nb, unsigned long ty
         log_tr("system down");
         break;
     }
+    logging_flush();
 
     _cbt_syscore_shutdown();
 
@@ -317,10 +321,10 @@ int __init veeamsnap_init(void)
         log_tr_d("Limited change_tracking_block_size_pow: ", g_param_change_tracking_block_size_pow);
     }
 
-#if defined(DISTRIB_NAME_RHEL) 
+#if defined(DISTRIB_NAME_RHEL)
     show_distrib_version("RHEL");
 #endif
-#if defined(DISTRIB_NAME_CENTOS) 
+#if defined(DISTRIB_NAME_CENTOS)
     show_distrib_version("CentOS");
 #endif
 #if defined(DISTRIB_NAME_OL)
@@ -411,8 +415,25 @@ int __init veeamsnap_init(void)
         if ((result = snapimage_init( )) != SUCCESS)
             break;
 
+
+#ifdef PERSISTENT_CBT
+        {
+            int cbt_persistent_result = cbt_persistent_init(g_cbtdata);
+            if (cbt_persistent_result == SUCCESS) {
+                cbt_persistent_load();
+            }
+            else if (cbt_persistent_result == ENODATA) {
+                //do nothing
+            }
+            else {
+                log_err("Failed to initialize persistent CBT");
+            }
+            //cbt_persistent_start_trackers();
+        }
+#endif
+
         if ((result = ctrl_sysfs_init(&veeamsnap_device)) != SUCCESS){
-#if 1
+#if 0
 			log_warn("Cannot initialize sysfs attributes");
 			result = SUCCESS;
 #else
@@ -420,22 +441,6 @@ int __init veeamsnap_init(void)
             break;
 #endif
         }
-
-#ifdef PERSISTENT_CBT
-		{
-			int cbt_persistent_result = cbt_persistent_init(g_cbtdata);
-			if (cbt_persistent_result == SUCCESS) {
-				cbt_persistent_load();
-			}
-			else if (cbt_persistent_result == ENODATA) {
-				//do nothing
-			}
-			else {
-				log_err("Failed to initialize persistent CBT");
-			}
-			//cbt_persistent_start_trackers();
-		}
-#endif
 
     }while(false);
 /*
@@ -491,11 +496,11 @@ void __exit veeamsnap_exit(void)
         result = tracker_done( );
         if (SUCCESS == result){
             result = tracker_queue_done( );
+
 #ifdef PERSISTENT_CBT
             cbt_persistent_done();
 #endif
         }
-
         snapimage_done( );
 
         sparsebitmap_done( );

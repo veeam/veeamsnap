@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include "snapdata_collect.h"
 #include "blk_util.h"
@@ -94,7 +96,11 @@ int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicU
         struct super_block* sb = NULL;
         res = blk_freeze_bdev( collector->dev_id, collector->device, &sb);
         if (res == SUCCESS){
+#ifdef HAVE_BLK_INTERPOSER
+            res = tracker_queue_ref(collector->device->bd_disk, &collector->tracker_queue);
+#else
             res = tracker_queue_ref(bdev_get_queue(collector->device), &collector->tracker_queue);
+#endif
             if (res != SUCCESS)
                 log_err("Unable to initialize snapstore collector: failed to reference tracker queue");
 
@@ -215,7 +221,7 @@ int page_array_convert2rangelist(page_array_t* changes, rangelist_t* rangelist, 
     if ((res == SUCCESS) && (rg.cnt != 0)){
         res = rangelist_add(rangelist, &rg);
         rg.cnt = 0;
-    }        
+    }
     return res;
 }
 #endif
@@ -293,8 +299,11 @@ int snapdata_collect_Get( dev_t dev_id, snapdata_collector_t** p_collector )
     return res;
 }
 
-
+#ifdef HAVE_BLK_INTERPOSER
+int snapdata_collect_Find(struct bio *bio, snapdata_collector_t** p_collector)
+#else
 int snapdata_collect_Find( struct request_queue *q, struct bio *bio, snapdata_collector_t** p_collector )
+#endif
 {
     int res = -ENODATA;
     content_sl_t* content = NULL;
@@ -302,8 +311,11 @@ int snapdata_collect_Find( struct request_queue *q, struct bio *bio, snapdata_co
     CONTAINER_SL_FOREACH_BEGIN( SnapdataCollectors, content )
     {
         collector = (snapdata_collector_t*)content;
-
+#ifdef HAVE_BLK_INTERPOSER
+        if ( (collector->device->bd_disk == bio->bi_disk)
+#else
         if ( (q == bdev_get_queue( collector->device ))
+#endif
             && (bio_bi_sector( bio ) >= blk_dev_get_start_sect( collector->device ))
             && ( bio_bi_sector( bio ) < (blk_dev_get_start_sect( collector->device ) + blk_dev_get_capacity( collector->device )))
         ){
@@ -314,7 +326,6 @@ int snapdata_collect_Find( struct request_queue *q, struct bio *bio, snapdata_co
     CONTAINER_SL_FOREACH_END( SnapdataCollectors );
     return res;
 }
-
 
 int _snapdata_collect_bvec( snapdata_collector_t* collector, sector_t ofs, struct bio_vec* bvec )
 {

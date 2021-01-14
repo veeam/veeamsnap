@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #ifndef STDAFX_H_
 #define STDAFX_H_
 
@@ -27,6 +29,12 @@
 #include <linux/bitmap.h>
 #include <asm/atomic.h>
 #include <linux/random.h>
+
+#if defined(blk_has_interposer)
+#ifndef HAVE_BLK_INTERPOSER
+#define HAVE_BLK_INTERPOSER
+#endif
+#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,2,0)
 #define HAVE_MAKE_REQUEST_INT
@@ -90,7 +98,7 @@ int get_snapstore_block_size_pow(void);
 int inc_snapstore_block_size_pow(void);
 int get_change_tracking_block_size_pow(void);
 
-#define FIXFLAG_RH6_SPINLOCK 1    //https://www.veeam.com/kb2786 
+#define FIXFLAG_RH6_SPINLOCK 1    //https://www.veeam.com/kb2786
 unsigned int get_fixflags(void);
 
 #define SNAPDATA_ZEROED
