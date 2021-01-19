@@ -13,7 +13,9 @@ This module supports Linux kernels from 2.6.32 to 5.8.
 
 There are some problems with BFQ up to 5.2
 
-For kernel v5.8 and later [see](./blk_interposer/README.md).
+Implemented support for kernel 5.8.
+
+For kernels 5.9 and later [blk_interposer](./blk_interposer/README.md) is required.
 
 ## How to use
 For more information, please visit:<br />
