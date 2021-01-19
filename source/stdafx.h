@@ -11,6 +11,10 @@
 #define VEEAMSNAP_MQ_IO
 #endif
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0)) && (LINUX_VERSION_CODE < KERNEL_VERSION(5,9,0))
+#define VEEAMSNAP_MQ_REQUEST
+#endif
+
 #include <linux/fs.h>
 #include <linux/types.h>
 #include <linux/genhd.h> // For basic block driver framework

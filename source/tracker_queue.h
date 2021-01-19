@@ -29,3 +29,26 @@ int tracker_queue_find(struct request_queue* queue, tracker_queue_t** ptracker_q
 #endif //HAVE_BLK_INTERPOSER
 
 void tracker_queue_unref(tracker_queue_t* ptracker_queue);
+
+#ifndef HAVE_BLK_INTERPOSER
+#ifdef VEEAMSNAP_MQ_REQUEST
+
+#include <linux/blk-mq.h>
+
+static inline make_request_fn * tracker_queue_get_original_make_request(tracker_queue_t* tracker_queue)
+{
+    make_request_fn* fn;
+
+    fn = tracker_queue->original_make_request_fn
+        ? tracker_queue->original_make_request_fn
+        : blk_mq_make_request;
+
+    return fn;
+}
+#else
+static inline make_request_fn * tracker_queue_get_original_make_request(tracker_queue_t* tracker_queue)
+{
+    return tracker_queue->original_make_request_fn;
+}
+#endif
+#endif

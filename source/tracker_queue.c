@@ -136,12 +136,6 @@ int tracker_queue_ref(struct request_queue* queue, tracker_queue_t** ptracker_qu
     int find_result = SUCCESS;
     tracker_queue_t* tr_q = NULL;
 
-    if (queue->make_request_fn == NULL)
-    {
-        log_err("Cannot make hook. make_request_fn is NULL");
-        return -EINVAL;
-    }
-
     find_result = tracker_queue_find(queue, &tr_q);
     if (SUCCESS == find_result){
         log_tr("Tracker queue already exists");
@@ -216,10 +210,7 @@ void tracker_queue_unref(tracker_queue_t* tracker_queue)
         if (IS_ERR(blk_ip))
             log_err_d("Failed to detach interposer. errno=", 0-PTR_ERR(blk_ip));
 #else
-        if (NULL != tracker_queue->original_make_request_fn){
-            tracker_queue->original_queue->make_request_fn = tracker_queue->original_make_request_fn;
-            tracker_queue->original_make_request_fn = NULL;
-        }
+        tracker_queue->original_queue->make_request_fn = tracker_queue->original_make_request_fn;
 #endif
         container_sl_free(&tracker_queue->content);
 

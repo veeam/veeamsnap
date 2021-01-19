@@ -102,7 +102,6 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 
     if (SUCCESS == tracker_queue_find(q, &tracker_queue)){
         //find tracker by queue
-        BUG_ON((tracker_queue->original_make_request_fn == NULL));
 
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
         if ( bio->bi_rw & WRITE ){// only write request processed
@@ -138,7 +137,7 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 
                 if (atomic_read( &tracker->is_captured ))
                 {// do copy-on-write
-                    int res = defer_io_redirect_bio( tracker->defer_io, bio, sectStart, sectCount, q, tracker_queue->original_make_request_fn, tracker );
+                    int res = defer_io_redirect_bio( tracker->defer_io, bio, sectStart, sectCount, q, tracker_queue_get_original_make_request(tracker_queue), tracker );
                     if (SUCCESS == res)
                         do_lowlevel = false;
                 }
@@ -156,7 +155,11 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
                         //tracker_CbtBitmapUnlock( tracker );
                     }
                     //call low level block device
-                    tracker_queue->original_make_request_fn( q, bio );
+                    {
+                        make_request_fn* fn = tracker_queue_get_original_make_request(tracker_queue);
+                        fn(q, bio);
+                    }
+
                     if (cbt_locked)
                         tracker_cbt_bitmap_unlock( tracker );
                 }
@@ -170,13 +173,17 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
                     if (cbt_locked)
                         tracker_cbt_bitmap_set( tracker, sectStart, sectCount );
                 }
-                tracker_queue->original_make_request_fn( q, bio );
+                {
+                    make_request_fn* fn = tracker_queue_get_original_make_request(tracker_queue);
+                    fn(q, bio);
+                }                
                 if (cbt_locked)
                     tracker_cbt_bitmap_unlock( tracker );
             }
         }else{
             //call low level block device
-            tracker_queue->original_make_request_fn(q, bio);
+            make_request_fn* fn = tracker_queue_get_original_make_request(tracker_queue);
+            fn(q, bio);
         }
 
     }else
