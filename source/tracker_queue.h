@@ -37,13 +37,16 @@ void tracker_queue_unref(tracker_queue_t* ptracker_queue);
 
 static inline make_request_fn * tracker_queue_get_original_make_request(tracker_queue_t* tracker_queue)
 {
-    make_request_fn* fn;
+    struct request_queue *q;
 
-    fn = tracker_queue->original_make_request_fn
-        ? tracker_queue->original_make_request_fn
-        : blk_mq_make_request;
+    if (tracker_queue->original_make_request_fn)
+        return tracker_queue->original_make_request_fn;
 
-    return fn;
+    /* prevents distortion of q_usage_counter counter in blk_queue_exit() */
+    q = tracker_queue->original_queue;
+    percpu_ref_get(&q->q_usage_counter);
+
+    return blk_mq_make_request;
 }
 #else
 static inline make_request_fn * tracker_queue_get_original_make_request(tracker_queue_t* tracker_queue)
