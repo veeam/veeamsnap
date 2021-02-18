@@ -24,9 +24,12 @@ void blk_dev_close( struct block_device* blk_dev );
 int blk_dev_get_info( dev_t dev_id, blk_dev_info_t* pdev_info );
 int _blk_dev_get_info( struct block_device* blk_dev, blk_dev_info_t* pdev_info );
 
+#ifdef VEEAMSNAP_BLK_FREEZE
 int blk_freeze_bdev( dev_t dev_id, struct block_device* device, struct super_block** psuperblock );
 struct super_block* blk_thaw_bdev( dev_t dev_id, struct block_device* device, struct super_block* superblock );
+#endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
 static __inline sector_t blk_dev_get_capacity( struct block_device* blk_dev )
 {
     return blk_dev->bd_part->nr_sects;
@@ -36,6 +39,17 @@ static __inline sector_t blk_dev_get_start_sect( struct block_device* blk_dev )
 {
     return blk_dev->bd_part->start_sect;
 };
+#else
+static __inline sector_t blk_dev_get_capacity(struct block_device* blk_dev)
+{
+    return bdev_nr_sectors(blk_dev);
+};
+
+static __inline sector_t blk_dev_get_start_sect(struct block_device* blk_dev)
+{
+    return get_start_sect(blk_dev);
+};
+#endif
 
 static __inline size_t blk_dev_get_block_size( struct block_device* blk_dev ){
     return (size_t)block_size( blk_dev );

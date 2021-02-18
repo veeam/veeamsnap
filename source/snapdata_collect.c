@@ -93,18 +93,30 @@ int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicU
     mutex_init(&collector->locker);
 
     {
+#ifdef VEEAMSNAP_BLK_FREEZE
         struct super_block* sb = NULL;
         res = blk_freeze_bdev( collector->dev_id, collector->device, &sb);
+#else
+        res = freeze_bdev(collector->device);
+#endif
+
         if (res == SUCCESS){
 #ifdef HAVE_BLK_INTERPOSER
             res = tracker_queue_ref(collector->device->bd_disk, &collector->tracker_queue);
 #else
             res = tracker_queue_ref(bdev_get_queue(collector->device), &collector->tracker_queue);
 #endif
+
             if (res != SUCCESS)
                 log_err("Unable to initialize snapstore collector: failed to reference tracker queue");
 
+#ifdef VEEAMSNAP_BLK_FREEZE
             sb = blk_thaw_bdev(collector->dev_id, collector->device, sb);
+#else
+            res = thaw_bdev(collector->device);
+            if (res != SUCCESS)
+                log_err("Failed to thaw block device");
+#endif
         }
     }
 

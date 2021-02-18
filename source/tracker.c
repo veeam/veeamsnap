@@ -208,7 +208,9 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
     if (result != SUCCESS)
         return result;
     do{
+#ifdef VEEAMSNAP_BLK_FREEZE
         struct super_block* superblock = NULL;
+#endif
 
         log_tr_format( "Create tracker for device [%d:%d]. Start 0x%llx sector, capacity 0x%llx sectors",
             MAJOR( tracker->original_dev_id ), MINOR( tracker->original_dev_id ),
@@ -229,17 +231,29 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
         else
             tracker_cbt_start(tracker, snapshot_id, cbt_map);
 
+#ifdef VEEAMSNAP_BLK_FREEZE
         result = blk_freeze_bdev( tracker->original_dev_id, tracker->target_dev, &superblock );
+#else
+        result = freeze_bdev(tracker->target_dev);
+#endif
         if (result != SUCCESS){
             tracker->is_unfreezable = true;
             break;
         }
+
 #ifdef HAVE_BLK_INTERPOSER
         result = tracker_queue_ref(tracker->target_dev->bd_disk, &tracker->tracker_queue);
 #else
         result = tracker_queue_ref( bdev_get_queue( tracker->target_dev ), &tracker->tracker_queue );
 #endif
+
+#ifdef VEEAMSNAP_BLK_FREEZE
         superblock = blk_thaw_bdev( tracker->original_dev_id, tracker->target_dev, superblock );
+#else
+        result = thaw_bdev(tracker->target_dev);
+        if (result != SUCCESS)
+            log_err("Failed to thaw block device");
+#endif
 
     }while(false);
 
@@ -265,13 +279,18 @@ int _tracker_remove( tracker_t* tracker )
     int result = SUCCESS;
 
     if (NULL != tracker->target_dev){
-
+#ifdef VEEAMSNAP_BLK_FREEZE
         struct super_block* superblock = NULL;
-
+#endif
         if (tracker->is_unfreezable)
             down_write(&tracker->unfreezable_lock);
-        else
+        else {
+#ifdef VEEAMSNAP_BLK_FREEZE
             result = blk_freeze_bdev(tracker->original_dev_id, tracker->target_dev, &superblock);
+#else
+            result = freeze_bdev(tracker->target_dev);
+#endif
+        }
 
         if (NULL != tracker->tracker_queue){
             tracker_queue_unref( tracker->tracker_queue );
@@ -279,8 +298,15 @@ int _tracker_remove( tracker_t* tracker )
         }
         if (tracker->is_unfreezable)
             up_write(&tracker->unfreezable_lock);
-        else
+        else {
+#ifdef VEEAMSNAP_BLK_FREEZE
             superblock = blk_thaw_bdev(tracker->original_dev_id, tracker->target_dev, superblock);
+#else
+            result = thaw_bdev(tracker->target_dev);
+            if (result != SUCCESS)
+                log_err("Failed to thaw block device");
+#endif
+        }
 
         blk_dev_close( tracker->target_dev );
 
@@ -401,7 +427,9 @@ int tracker_capture_snapshot( snapshot_t* snapshot )
     int inx = 0;
 
     for (inx = 0; inx < snapshot->dev_id_set_size; ++inx){
+#ifdef VEEAMSNAP_BLK_FREEZE
         struct super_block* superblock = NULL;
+#endif
         tracker_t* tracker = NULL;
         dev_t dev_id = snapshot->dev_id_set[inx];
 
@@ -414,8 +442,17 @@ int tracker_capture_snapshot( snapshot_t* snapshot )
 
         if (tracker->is_unfreezable)
             down_write(&tracker->unfreezable_lock);
-        else
+        else {
+#ifdef VEEAMSNAP_BLK_FREEZE
             blk_freeze_bdev(tracker->original_dev_id, tracker->target_dev, &superblock);
+#else
+            result = freeze_bdev(tracker->target_dev);
+            if (result != SUCCESS){
+                log_err_dev_t("Unable to capture snapshot: cannot freeze device ", dev_id );
+                break;
+            }
+#endif
+        }
         {
             result = _tracker_capture_snapshot( tracker );
             if (result != SUCCESS)
@@ -423,8 +460,17 @@ int tracker_capture_snapshot( snapshot_t* snapshot )
         }
         if (tracker->is_unfreezable)
             up_write(&tracker->unfreezable_lock);
-        else
+        else {
+#ifdef VEEAMSNAP_BLK_FREEZE
             superblock = blk_thaw_bdev(tracker->original_dev_id, tracker->target_dev, superblock);
+#else
+            result = thaw_bdev(tracker->target_dev);
+            if (result != SUCCESS) {
+                log_err("Unable to capture snapshot: failed to thaw block device");
+                break;
+            }
+#endif
+        }
     }
     if (result != SUCCESS)
         return result;
@@ -461,24 +507,37 @@ int tracker_capture_snapshot( snapshot_t* snapshot )
 int _tracker_release_snapshot( tracker_t* tracker )
 {
     int result = SUCCESS;
+#ifdef VEEAMSNAP_BLK_FREEZE
     struct super_block* superblock = NULL;
+#endif
     defer_io_t* defer_io = tracker->defer_io;
 
 
     if (tracker->is_unfreezable)
         down_write(&tracker->unfreezable_lock);
-    else
+    else {
+#ifdef VEEAMSNAP_BLK_FREEZE
         result = blk_freeze_bdev(tracker->original_dev_id, tracker->target_dev, &superblock);
-    {
-        //clear freeze flag
-        atomic_set(&tracker->is_captured, false);
-
-        tracker->defer_io = NULL;
+#else
+        result = freeze_bdev(tracker->target_dev);
+#endif
     }
+
+    //clear freeze flag
+    atomic_set(&tracker->is_captured, false);
+
+    tracker->defer_io = NULL;
+
     if (tracker->is_unfreezable)
         up_write(&tracker->unfreezable_lock);
-    else
+    else {
+#ifdef VEEAMSNAP_BLK_FREEZE
         superblock = blk_thaw_bdev(tracker->original_dev_id, tracker->target_dev, superblock);
+#else
+        if (!result)
+            thaw_bdev(tracker->target_dev);
+#endif
+    }
 
     defer_io_stop(defer_io);
     defer_io_put_resource(defer_io);

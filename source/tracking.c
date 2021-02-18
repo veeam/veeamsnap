@@ -32,6 +32,8 @@ bool tracking_submit_bio(struct blk_interposer *interposer, struct bio *bio)
     tracker_queue = container_of(interposer, tracker_queue_t, interposer);
 
     if (SUCCESS == tracker_find_by_queue_and_sector(tracker_queue, bi_sector, &tracker)) {
+        sector_t sectStart = (bi_sector - blk_dev_get_start_sect( tracker->target_dev ));
+        sector_t sectCount = sector_from_size( bi_size );
 
         //find tracker by queue
         if (op_is_write(bio_op(bio))) {// only write request processed
@@ -48,7 +50,7 @@ bool tracking_submit_bio(struct blk_interposer *interposer, struct bio *bio)
 
             if (atomic_read(&tracker->is_captured)) {
                 // do copy-on-write
-                int res = defer_io_redirect_bio(tracker->defer_io, bio, tracker);
+                int res = defer_io_redirect_bio(tracker->defer_io, bio, sectStart, sectCount, tracker);
                 if (SUCCESS == res)
                     was_catched = true;
             }
@@ -116,11 +118,8 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
         bi_size = bio_bi_size(bio);
 
         if (SUCCESS == tracker_find_by_queue_and_sector( tracker_queue, bi_sector, &tracker )){
-            sector_t sectStart = 0;
-            sector_t sectCount = 0;
-
-            sectStart = (bi_sector - blk_dev_get_start_sect( tracker->target_dev ));
-            sectCount = sector_from_size( bi_size );
+            sector_t sectStart = (bi_sector - blk_dev_get_start_sect( tracker->target_dev ));
+            sector_t sectCount = sector_from_size( bi_size );
 
             if ((bio->bi_end_io != blk_direct_bio_endio) &&
                 (bio->bi_end_io != blk_redirect_bio_endio) &&
@@ -176,7 +175,7 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
                 {
                     make_request_fn* fn = tracker_queue_get_original_make_request(tracker_queue);
                     fn(q, bio);
-                }                
+                }
                 if (cbt_locked)
                     tracker_cbt_bitmap_unlock( tracker );
             }

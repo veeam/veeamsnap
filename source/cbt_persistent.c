@@ -30,7 +30,7 @@
 #define CBT_REGISTER_ERROR "vcbterr\0"
 
 //////////////////////////////////////////////////////////////////////////
-// global variables 
+// global variables
 //////////////////////////////////////////////////////////////////////////
 typedef struct cbt_prst_list_s
 {
@@ -51,7 +51,7 @@ typedef struct cbt_prst_reg_s
 {
     struct list_head link;
     dev_t dev_id;
-    uint32_t check_parameters_sz; 
+    uint32_t check_parameters_sz;
     void* check_parameters;
     cbt_map_t* cbt_map;
 } cbt_prst_reg_t;
@@ -76,7 +76,7 @@ static cbt_prst_reg_t* _cbt_prst_reg_new(dev_t dev_id, uint32_t check_parameters
 static void _cbt_prst_reg_del(cbt_prst_reg_t* reg)
 {
     list_del(&reg->link);
-    
+
     if (reg->check_parameters)
         dbg_kfree(reg->check_parameters);
 
@@ -489,7 +489,7 @@ static int _cbt_prst_store_all_register(cbt_storage_accessor_t* accessor)
 
         if (SUCCESS != _cbt_prst_store_end(accessor))
             log_err("Failed to write end indication for CBT data list");
-        
+
     }
     up_write(&_cbt_prst_registers_list.lock);
     return res;
@@ -591,7 +591,7 @@ static int _cbt_prst_load(void)
         log_err("Cannot open persistent CBT data");
         return res;
     }
-    
+
     BUG_ON(NULL == accessor->device);
     BUG_ON(NULL == accessor->pg);
     BUG_ON(NULL == accessor->page);
@@ -751,7 +751,7 @@ int cbt_persistent_cbtdata_new(const char* cbtdata)
     res = cbt_prst_parse_parameters(cbtdata, &_cbt_params);
     if (res != SUCCESS)
         log_err_d("Failed to parse CBT persistent parameters. errcode=", res);
-    else 
+    else
     {//DEBUG! Show CBT data location
         range_t* p_range = NULL;
 
@@ -874,13 +874,16 @@ bool cbt_persistent_device_filter(dev_t dev_id)
 
 void cbt_persistent_device_attach(char* dev_name, char* dev_path)
 {
-
     dev_t dev_id;
+
     {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
+        struct block_device* bdev;
+
 #ifdef LOOKUP_BDEV_MASK
-        struct block_device* bdev = lookup_bdev(dev_name, 0);
+        bdev = lookup_bdev(dev_name, 0);
 #else
-        struct block_device* bdev = lookup_bdev(dev_name);
+        bdev = lookup_bdev(dev_name);
 #endif
         if (IS_ERR(bdev)){
             log_err_s("Failed to find device by name ", dev_name);
@@ -894,6 +897,22 @@ void cbt_persistent_device_attach(char* dev_name, char* dev_path)
         }
 
         dev_id = bdev->bd_dev;
+#else
+        struct block_device* bdev;
+        int ret;
+
+        ret = lookup_bdev(dev_name, &dev_id);
+        if (ret) {
+            log_err("Cannot find device by name");
+            return;
+        }
+        bdev = blkdev_get_by_dev(dev_id, FMODE_READ | FMODE_WRITE, NULL);
+        if (IS_ERR(bdev)){
+            log_err_dev_t("Cannot open device ", dev_id);
+            return;
+        }
+#endif
+
         if (!cbt_persistent_device_filter(dev_id))
             return;
 
@@ -904,14 +923,11 @@ void cbt_persistent_device_attach(char* dev_name, char* dev_path)
             log_tr_s("Found disk ", bdev->bd_disk->disk_name);
 
         //partition information
-        if (bdev->bd_part != NULL){
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36)
+        if (bdev->bd_part != NULL) {
             struct hd_struct *	bd_part = bdev->bd_part;
 
-            //log_tr_d("Partition # ", bd_part->partno);
-            //log_tr_sect("Partition sector start at ", bd_part->start_sect);
-            //log_tr_sect("Partition sector size ", bd_part->nr_sects);
-
-#if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,36)
             if (bd_part->info){
                 struct partition_meta_info *info = bd_part->info;
 
@@ -919,10 +935,19 @@ void cbt_persistent_device_attach(char* dev_name, char* dev_path)
                 log_tr_s("volume uuid ", info->uuid);
                 log_tr_s("volume name ", info->volname);
             }
-#endif
         }
+#endif
+#else
+        if (bdev_is_partition(bdev)) {
+            struct partition_meta_info *info = bdev->bd_meta_info;
 
-
+            if (info) {
+                log_tr("Partition information found");
+                log_tr_s("volume uuid ", info->uuid);
+                log_tr_s("volume name ", info->volname);
+            }
+        }
+#endif
     }
 
     // Lock allows only one block device to be processed at a time

@@ -300,13 +300,15 @@ sector_t _blk_deferred_submit_pages(
 
     ((dio_bio_complete_t*)bio->bi_private)->dio_req = dio_req;
     ((dio_bio_complete_t*)bio->bi_private)->bio_sect_len = process_sect;
-
+#ifdef HAVE_BLK_INTERPOSER
+    submit_bio_noacct(bio);
+#else
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
     submit_bio( direction, bio );
 #else
     submit_bio( bio );
 #endif
-
+#endif
     return process_sect;
 }
 
@@ -580,7 +582,7 @@ int blk_deferred_request_store_file( struct block_device* blk_dev, blk_deferred_
 
     if (res != SUCCESS)
         return res;
-    
+
     res = blk_deferred_request_wait( dio_copy_req );
     return res;
 }

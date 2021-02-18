@@ -305,10 +305,14 @@ void blk_dev_redirect_submit( blk_redirect_bio_endio_t* rq_endio )
     rq_endio->bio_endio_head_rec = NULL;
 
     while (curr != NULL){
+#ifdef HAVE_BLK_INTERPOSER
+        submit_bio_noacct(curr->this);
+#else
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
         submit_bio( bio_data_dir( rq_endio->bio ), curr->this );
 #else
         submit_bio( curr->this );
+#endif
 #endif
         curr = curr->next;
     }

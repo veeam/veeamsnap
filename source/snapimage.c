@@ -118,7 +118,7 @@ trace_page_t* image_trace_new_page(snapimage_t* image)
     trace_page->load_inx = 0;
 
     INIT_LIST_HEAD(&trace_page->link);
-    
+
     spin_lock(&image->trace_lock);
     list_add_tail(&trace_page->link, &image->trace_list);
     spin_unlock(&image->trace_lock);
@@ -381,7 +381,7 @@ int _snapimage_ioctl( struct block_device *bdev, fmode_t mode, unsigned cmd, uns
                 res = SUCCESS;
         }
         break;
-        case CDROM_GET_CAPABILITY: //0x5331  / * get capabilities * / 
+        case CDROM_GET_CAPABILITY: //0x5331  / * get capabilities * /
         {
             struct gendisk *disk = bdev->bd_disk;
 
@@ -567,7 +567,7 @@ int snapimage_processor_thread( void *data )
 {
 
     snapimage_t *image = data;
-    
+
     log_tr_format( "Snapshot image thread for device [%d:%d] start", MAJOR( image->image_dev ), MINOR( image->image_dev ) );
 
     add_disk( image->disk );
@@ -649,7 +649,7 @@ blk_qc_t _snapimage_submit_bio(struct bio *bio)
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION( 4, 4, 0 )
-    blk_qc_t result = SUCCESS;
+    blk_qc_t result = BLK_QC_T_NONE;
 #else
 
 #ifdef HAVE_MAKE_REQUEST_INT
@@ -1075,7 +1075,7 @@ int snapimage_destroy_for( dev_t* p_dev, int count )
     for (; inx < count; ++inx){
         int local_res = snapimage_destroy( p_dev[inx] );
         if (local_res != SUCCESS){
-            log_err_format( "Failed to release snapshot image for original device [%d:%d]. errno=%d", 
+            log_err_format( "Failed to release snapshot image for original device [%d:%d]. errno=%d",
                 MAJOR( p_dev[inx] ), MINOR( p_dev[inx] ), 0 - local_res );
             res = local_res;
         }

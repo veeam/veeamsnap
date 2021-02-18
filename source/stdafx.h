@@ -15,6 +15,10 @@
 #define VEEAMSNAP_MQ_REQUEST
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
+#define VEEAMSNAP_BLK_FREEZE
+#endif
+
 #include <linux/fs.h>
 #include <linux/types.h>
 #include <linux/genhd.h> // For basic block driver framework
@@ -34,9 +38,13 @@
 #include <asm/atomic.h>
 #include <linux/random.h>
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
 #if defined(blk_has_interposer)
 #ifndef HAVE_BLK_INTERPOSER
 #define HAVE_BLK_INTERPOSER
+#endif
+#else
+#error For kernel 5.9 or later, you should use the blk_interposer patch.
 #endif
 #endif
 

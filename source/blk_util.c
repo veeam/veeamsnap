@@ -54,8 +54,13 @@ int _blk_dev_get_info( struct block_device* blk_dev, blk_dev_info_t* pdev_info )
     sector_t SectorStart;
     sector_t SectorsCapacity;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
     if (blk_dev->bd_part)
         SectorsCapacity = blk_dev->bd_part->nr_sects;
+#else
+    if (bdev_is_partition(blk_dev))
+        SectorsCapacity = bdev_nr_sectors(blk_dev);
+#endif
     else if (blk_dev->bd_disk)
         SectorsCapacity = get_capacity( blk_dev->bd_disk );
     else{
@@ -113,7 +118,7 @@ int blk_dev_get_info( dev_t dev_id, blk_dev_info_t* pdev_info )
     return result;
 }
 
-
+#ifdef VEEAMSNAP_BLK_FREEZE
 int blk_freeze_bdev( dev_t dev_id, struct block_device* device, struct super_block** psuperblock )
 {
     struct super_block* superblock;
@@ -156,3 +161,4 @@ struct super_block* blk_thaw_bdev( dev_t dev_id, struct block_device* device, st
     }
     return superblock;
 }
+#endif
