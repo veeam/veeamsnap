@@ -699,32 +699,32 @@ int ioctl_persistentcbt_data(unsigned long arg)
     char* cbtdata = NULL;
 
     if (0 != copy_from_user(&param, (void*)arg, sizeof(struct ioctl_persistentcbt_data_s))) {
-        log_err("[TBD]Unable to receive persistent cbt data. Invalid input parameters.");
+        log_err("Unable to retrieve persistent CBT data. Invalid input parameters.");
         return -ENODATA;
     }
 
     if ( (param.size == 0) || (param.size == 1) || (param.parameter == NULL) )
     {
-        log_tr("[TBD]Cleanup persistent CBT data parameter");
+        log_tr("Cleanup persistent CBT data parameters");
         cbt_persistent_cbtdata_free();
     }
     else 
     {
         cbtdata = dbg_kzalloc(param.size + 1, GFP_KERNEL);
         if (cbtdata == NULL) {
-            log_err("[TBD]Unable to receive persistent cbt data. Not enough memory.");
+            log_err("Unable to retrieve persistent cbt data. Not enough memory.");
             return -ENOMEM;
         }
 
         do
         {
             if (0 != copy_from_user((void*)cbtdata, (void*)param.parameter, param.size)) {
-                log_err("[TBD]Unable to receive persistent cbt data. Invalid input parameters.");
+                log_err("Unable to retreive persistent CBT data. Invalid input parameters.");
                 status = -ENODATA;
                 break;
             }
 
-            log_tr_s("[TBD]Setup persistent CBT data parameter: ", cbtdata);
+            log_tr_s("Setup persistent CBT data parameters: ", cbtdata);
             status = cbt_persistent_cbtdata_new(cbtdata);
 
         } while (false);
