@@ -437,13 +437,11 @@ int blk_dev_redirect_zeroed_part( blk_redirect_bio_endio_t* rq_endio, sector_t r
 int blk_dev_redirect_read_zeroed( blk_redirect_bio_endio_t* rq_endio, struct block_device*  blk_dev, sector_t rq_pos, sector_t blk_ofs_start, sector_t blk_ofs_count, rangevector_t* zero_sectors )
 {
     int res = SUCCESS;
-    sector_t current_portion;
-    sector_t ofs = 0;
-
     rangevector_el_t* el = NULL;
+    bool is_zero_covering = false;
 
-    sector_t from_sect;
-    sector_t to_sect;
+    sector_t from_sect = rq_pos + blk_ofs_start;
+    sector_t to_sect = rq_pos + blk_ofs_start + blk_ofs_count;
 
     BUG_ON( NULL == zero_sectors );
 
@@ -452,6 +450,7 @@ int blk_dev_redirect_read_zeroed( blk_redirect_bio_endio_t* rq_endio, struct blo
     {
         range_t* first_zero_range;
         range_t* last_zero_range;
+        range_t* zero_range;
         size_t limit;
 
         limit = (size_t)atomic_read( &el->cnt );
@@ -461,48 +460,27 @@ int blk_dev_redirect_read_zeroed( blk_redirect_bio_endio_t* rq_endio, struct blo
         first_zero_range = &el->ranges[0];
         last_zero_range = &el->ranges[limit - 1];
 
-        from_sect = (rq_pos + blk_ofs_start + ofs);
-        to_sect = (rq_pos + blk_ofs_start + blk_ofs_count);
-
-        if ((last_zero_range->ofs + last_zero_range->cnt) <= from_sect){
+        if ((last_zero_range->ofs + last_zero_range->cnt) <= from_sect)
             continue;
-        }
 
-        if (first_zero_range->ofs >= to_sect){
+        if (first_zero_range->ofs >= to_sect)
             break;
-        }
 
-        while (from_sect < to_sect){
-            range_t* zero_range;
-            zero_range = rangevector_el_find_first_hit( el, from_sect, to_sect );
-            if (zero_range == NULL)
-                break;
+        zero_range = rangevector_el_find_first_hit(el, from_sect, to_sect);
+        if (likely(zero_range))
+            if ((zero_range->ofs <= from_sect) && (to_sect <= (zero_range->ofs + zero_range->cnt)))
+                is_zero_covering = true; /* the range of zeros is cover the read request */
 
-            if (zero_range->ofs > rq_pos + blk_ofs_start + ofs){
-                sector_t pre_zero_cnt = zero_range->ofs - (rq_pos + blk_ofs_start + ofs);
-
-                res = blk_dev_redirect_part( rq_endio, READ, blk_dev, rq_pos + blk_ofs_start + ofs, blk_ofs_start + ofs, pre_zero_cnt );
-                if (res != SUCCESS){
-                    break;
-                }
-                ofs += pre_zero_cnt;
-            }
-
-            current_portion = min_t( sector_t, zero_range->cnt, blk_ofs_count - ofs );
-
-            res = blk_dev_redirect_zeroed_part( rq_endio, blk_ofs_start + ofs, current_portion );
-            if (res != SUCCESS){
-                break;
-            }
-            ofs += current_portion;
-
-            from_sect = (rq_pos + blk_ofs_start + ofs);
-        };
+        break;
     }
     RANGEVECTOR_FOREACH_EL_END( );
     RANGEVECTOR_READ_UNLOCK( zero_sectors );
-    if ((blk_ofs_count - ofs) > 0)
-        res = blk_dev_redirect_part( rq_endio, READ, blk_dev, rq_pos + blk_ofs_start + ofs, blk_ofs_start + ofs, blk_ofs_count - ofs );
+
+    if (is_zero_covering)
+        res = blk_dev_redirect_zeroed_part(rq_endio, blk_ofs_start, blk_ofs_count);
+    else
+        res = blk_dev_redirect_part( rq_endio, READ, blk_dev, rq_pos + blk_ofs_start, blk_ofs_start, blk_ofs_count );
+
     return res;
 }
 
