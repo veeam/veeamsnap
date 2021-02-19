@@ -25,15 +25,13 @@ bool tracking_submit_bio(struct blk_interposer *interposer, struct bio *bio)
     tracker_queue_t* tracker_queue = NULL;
     snapdata_collector_t* collector = NULL;
     tracker_t* tracker = NULL;
-    sector_t bi_sector = bio_bi_sector(bio);
-    unsigned int bi_size = bio_bi_size(bio);;
 
     bio_get(bio);
     tracker_queue = container_of(interposer, tracker_queue_t, interposer);
 
-    if (SUCCESS == tracker_find_by_queue_and_sector(tracker_queue, bi_sector, &tracker)) {
-        sector_t sectStart = (bi_sector - blk_dev_get_start_sect( tracker->target_dev ));
-        sector_t sectCount = sector_from_size( bi_size );
+    if (SUCCESS == tracker_find_by_queue_and_sector(tracker_queue, bio_bi_sector(bio), &tracker)) {
+        sector_t sectStart = (bio_bi_sector(bio) - blk_dev_get_start_sect( tracker->target_dev ));
+        sector_t sectCount = sector_from_size( bio_bi_size(bio) );
 
         //find tracker by queue
         if (op_is_write(bio_op(bio))) {// only write request processed
@@ -65,7 +63,7 @@ bool tracking_submit_bio(struct blk_interposer *interposer, struct bio *bio)
             if (tracker && bio_data_dir(bio) && bio_has_data(bio)) {
                 cbt_locked = tracker_cbt_bitmap_lock(tracker);
                 if (cbt_locked)
-                    tracker_cbt_bitmap_set(tracker, bi_sector, sector_from_size(bi_size));
+                    tracker_cbt_bitmap_set(tracker, sectStart, sectCount);
             }
             if (cbt_locked)
                 tracker_cbt_bitmap_unlock(tracker);

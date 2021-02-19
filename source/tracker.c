@@ -396,28 +396,37 @@ void tracker_cbt_bitmap_unlock( tracker_t* tracker )
 
 int _tracker_capture_snapshot( tracker_t* tracker )
 {
-    int result = SUCCESS;
+    int result;
     defer_io_t* defer_io = NULL;
 
     result = defer_io_create( tracker->original_dev_id, tracker->target_dev, &defer_io );
     if (result != SUCCESS){
         log_err( "Failed to create defer IO processor" );
-    }else{
-        tracker->defer_io = defer_io_get_resource( defer_io );
-
-        atomic_set( &tracker->is_captured, true );
-
-        if (tracker->cbt_map != NULL){
-            cbt_map_write_lock( tracker->cbt_map );
-            cbt_map_switch( tracker->cbt_map );
-            cbt_map_write_unlock( tracker->cbt_map );
-
-            log_tr_format( "Snapshot captured for device [%d:%d]. New snap number %ld",
-                MAJOR( tracker->original_dev_id ), MINOR( tracker->original_dev_id ), tracker->cbt_map->snap_number_active );
-        }
+        return result;
     }
 
-    return result;
+#ifdef HAVE_BLK_INTERPOSER
+    blk_disk_freeze(tracker->target_dev->bd_disk);
+#endif
+
+    tracker->defer_io = defer_io_get_resource( defer_io );
+
+    atomic_set( &tracker->is_captured, true );
+
+    if (tracker->cbt_map != NULL){
+        cbt_map_write_lock( tracker->cbt_map );
+        cbt_map_switch( tracker->cbt_map );
+        cbt_map_write_unlock( tracker->cbt_map );
+
+        log_tr_format( "Snapshot captured for device [%d:%d]. New snap number %ld",
+            MAJOR( tracker->original_dev_id ), MINOR( tracker->original_dev_id ), tracker->cbt_map->snap_number_active );
+    }
+
+#ifdef HAVE_BLK_INTERPOSER
+    blk_disk_unfreeze(tracker->target_dev->bd_disk);
+#endif
+
+    return 0;
 
 }
 
@@ -453,11 +462,11 @@ int tracker_capture_snapshot( snapshot_t* snapshot )
             }
 #endif
         }
-        {
-            result = _tracker_capture_snapshot( tracker );
-            if (result != SUCCESS)
-                log_err_dev_t( "Failed to capture snapshot for device ", dev_id );
-        }
+
+        result = _tracker_capture_snapshot( tracker );
+        if (result != SUCCESS)
+            log_err_dev_t( "Failed to capture snapshot for device ", dev_id );
+
         if (tracker->is_unfreezable)
             up_write(&tracker->unfreezable_lock);
         else {
@@ -523,10 +532,18 @@ int _tracker_release_snapshot( tracker_t* tracker )
 #endif
     }
 
+#ifdef HAVE_BLK_INTERPOSER
+    blk_disk_freeze(tracker->target_dev->bd_disk);
+#endif
+
     //clear freeze flag
     atomic_set(&tracker->is_captured, false);
 
     tracker->defer_io = NULL;
+
+#ifdef HAVE_BLK_INTERPOSER
+    blk_disk_unfreeze(tracker->target_dev->bd_disk);
+#endif
 
     if (tracker->is_unfreezable)
         up_write(&tracker->unfreezable_lock);
