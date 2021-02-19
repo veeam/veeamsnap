@@ -1,7 +1,7 @@
-# Kernel v5.8 and blk_interposer
+# Kernel v5.9 and blk_interposer
 
-For veeamsnap to work on kernels 5.8 and later it is required to add blk_interposer functionality.
-This feature is being developed in git://git.kernel.org/pub/scm/linux/kernel/git/hare/scsi-devel blk-interposer.v2 branch. One needs only kernel changes (skip device-mapper).
+For veeamsnap to work on kernels 5.9 and later it is required to add blk_interposer functionality.
+This feature is being developed in git://git.kernel.org/pub/scm/linux/kernel/git/hare/scsi-devel blk-interposer.v2 branch. One needs only kernel changes (skip device-mapper). This patch can also be used for v5.11 kernel.
 
 Therefore, only these two commits are required:
 ```
@@ -26,11 +26,11 @@ blk_interposer_cumulative.patch
 ```
 In order to install a stable vanilla kernel (5.10 for example) you have to download it first:
 ```bash
-wget https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.10.7.tar.xz 
+wget https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.10.7.tar.xz
 ```
 Unpack:
 ```bash
-tar -xf ./linux-5.10.7.tar.xz 
+tar -xf ./linux-5.10.7.tar.xz
 ```
 Apply the patch:
 ```bash
