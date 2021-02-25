@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 #include "container_spinlocking.h"
 #include "tracker_queue.h"

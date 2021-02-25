@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include <asm/div64.h>
 #include <linux/cdrom.h>

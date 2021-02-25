@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 
 static __inline unsigned int sector_to_uint( sector_t sect )

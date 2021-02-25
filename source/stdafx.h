@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #ifndef STDAFX_H_
 #define STDAFX_H_
 

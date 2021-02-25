@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 static __attribute__((unused)) void  log_tr_format(const char* frm, ...)
 {
     va_list args;

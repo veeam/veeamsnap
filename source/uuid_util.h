@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )

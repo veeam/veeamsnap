@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 #include "queue_spinlocking.h"
 #include "rangevector.h"
