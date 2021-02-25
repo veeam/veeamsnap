@@ -18,6 +18,7 @@
 #include "snapshot.h"
 #include "tracker_queue.h"
 #include "tracker.h"
+#include "tracking.h"
 #include "sparse_bitmap.h"
 #include "ctrl_sysfs.h"
 
@@ -29,6 +30,10 @@
 #include "cbt_persistent.h"
 #endif
 
+#ifdef CONFIG_BLK_FILTER
+#include <linux/blk-filter.h>
+#define VEEAMSNAP_DEFAULT_ALTITUDE BLK_FILTER_ALTITUDE_MIN
+#endif
 
 #include <linux/reboot.h>       //use old methon
 //#include <linux/syscore_ops.h>    //more modern method
@@ -176,6 +181,50 @@ int get_params(char* buf)
 }
 #endif //VEEAMSNAP_SYSFS_PARAMS
 
+#ifdef CONFIG_BLK_FILTER
+blk_qc_t filter_submit_original_bio(struct bio *bio);
+
+static void filter_disk_add(struct gendisk *disk)
+{
+    log_tr_format("new disk [%s] in system", disk->disk_name);
+}
+static void filter_disk_del(struct gendisk *disk)
+{
+    log_tr_format("del disk [%s] from system", disk->disk_name);
+}
+static void filter_disk_release(struct gendisk *disk)
+{
+    log_tr_format("release disk [%s] from system", disk->disk_name);
+}
+static blk_qc_t filter_submit_bio(struct bio *bio)
+{
+    blk_qc_t result;
+    if (tracking_submit_bio(bio, &result))
+        return result;
+    else
+        return filter_submit_original_bio(bio);
+}
+
+static const struct blk_filter_ops g_filter_ops = {
+    .disk_add = filter_disk_add,
+    .disk_del = filter_disk_del,
+    .disk_release = filter_disk_release,
+    .submit_bio = filter_submit_bio
+};
+
+static struct blk_filter g_filter = {
+    .name = "veeamsnap",
+    .ops = &g_filter_ops,
+    .altitude = VEEAMSNAP_DEFAULT_ALTITUDE,
+    .blk_filter_ctx = NULL
+};
+
+blk_qc_t filter_submit_original_bio(struct bio *bio)
+{
+    return blk_filter_submit_bio_next(&g_filter, bio);
+}
+#endif
+
 static struct device* veeamsnap_device = NULL;
 
 static struct file_operations ctrl_fops = {
@@ -249,6 +298,7 @@ struct syscore_ops _cbt_syscore_ops = {
 #ifdef _LINUX_REBOOT_H
 static int veeamsnap_shutdown_notify(struct notifier_block *nb, unsigned long type, void *p)
 {
+    logging_mode_sys(); //switch logger to system log
 
     switch (type) {
     case SYS_HALT:
@@ -262,6 +312,7 @@ static int veeamsnap_shutdown_notify(struct notifier_block *nb, unsigned long ty
         log_tr("system down");
         break;
     }
+    logging_flush();
 
     _cbt_syscore_shutdown();
 
@@ -413,8 +464,25 @@ int __init veeamsnap_init(void)
         if ((result = snapimage_init( )) != SUCCESS)
             break;
 
+
+#ifdef PERSISTENT_CBT
+        {
+            int cbt_persistent_result = cbt_persistent_init(g_cbtdata);
+            if (cbt_persistent_result == SUCCESS) {
+                cbt_persistent_load();
+            }
+            else if (cbt_persistent_result == ENODATA) {
+                //do nothing
+            }
+            else {
+                log_err("Failed to initialize persistent CBT");
+            }
+            //cbt_persistent_start_trackers();
+        }
+#endif
+
         if ((result = ctrl_sysfs_init(&veeamsnap_device)) != SUCCESS){
-#if 1
+#if 0
 			log_warn("Cannot initialize sysfs attributes");
 			result = SUCCESS;
 #else
@@ -423,20 +491,15 @@ int __init veeamsnap_init(void)
 #endif
         }
 
-#ifdef PERSISTENT_CBT
-		{
-			int cbt_persistent_result = cbt_persistent_init(g_cbtdata);
-			if (cbt_persistent_result == SUCCESS) {
-				cbt_persistent_load();
-			}
-			else if (cbt_persistent_result == ENODATA) {
-				//do nothing
-			}
-			else {
-				log_err("Failed to initialize persistent CBT");
-			}
-			//cbt_persistent_start_trackers();
-		}
+#ifdef CONFIG_BLK_FILTER
+        if ((result = blk_filter_register(&g_filter)) != SUCCESS) {
+            const char* exist_filter = blk_filter_check_altitude(g_filter.altitude);
+            if (exist_filter)
+                log_err_format("Block io layer filter [%s] already exist on altitude [%d]", exist_filter, g_filter.altitude);
+
+            log_err("Failed to register block io layer filter");
+            break;
+        }
 #endif
 
     }while(false);
@@ -493,11 +556,15 @@ void __exit veeamsnap_exit(void)
         result = tracker_done( );
         if (SUCCESS == result){
             result = tracker_queue_done( );
+#ifdef CONFIG_BLK_FILTER
+            if (SUCCESS == result)
+                result = blk_filter_unregister(&g_filter);
+#endif
+
 #ifdef PERSISTENT_CBT
             cbt_persistent_done();
 #endif
         }
-
         snapimage_done( );
 
         sparsebitmap_done( );

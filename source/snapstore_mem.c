@@ -73,9 +73,11 @@ void* snapstore_mem_get_block( snapstore_mem_t* mem )
     if (buffer_el == NULL)
         return NULL;
 
-    //buffer_el->buff = dbg_vmalloc( SNAPSTORE_BLK_SIZE * SECTOR512 );
-    ///* GFP_KERNEL / *__GFP_NOWARN / *| __GFP_NOFAIL*/
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0)
+    buffer_el->buff = __vmalloc(SNAPSTORE_BLK_SIZE * SECTOR_SIZE, GFP_NOIO);
+#else
     buffer_el->buff = __vmalloc( SNAPSTORE_BLK_SIZE * SECTOR_SIZE, GFP_NOIO, PAGE_KERNEL );
+#endif
     if (buffer_el->buff == NULL){
         content_free( &buffer_el->content );
         return NULL;

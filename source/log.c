@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include "log.h"
 #include "queue_spinlocking.h"
@@ -6,6 +8,8 @@
 #define SECTION "logging   "
 #define LOGFILE
 #define LOGGING_CHECK_RENEW "CHECK_RENEW"
+#define LOGGING_MODE_SYS    "MODE_SYS"
+#define LOGGING_MODE_FILE   "MODE_FILE"
 
 #define MAX_LOGLINE_SIZE 256
 #define MAX_FILENAME_SIZE 256
@@ -72,6 +76,7 @@ typedef struct _logging_t
 #else
     struct timespec64 m_modify_time;
 #endif
+    volatile bool m_is_file_logging;
     volatile int m_state;
 
     queue_sl_t m_rq_proc_queue; //log request processing queue
@@ -102,14 +107,18 @@ static int __logging_filp_open( logging_t* logging )
 {
     int res = SUCCESS;
     struct file* filp = NULL;
-    do{
-        filp = filp_open(logging->m_filepath, O_WRONLY | O_APPEND | O_CREAT, 0644 );
-        if (IS_ERR( filp )){
-            res = PTR_ERR( filp );
-            pr_err( "ERR %s:%s Failed to open file. res=%d\n", MODULE_NAME, SECTION, res );
-        }else
-            logging->m_filp = filp;
-    } while (false);
+
+    if (logging->m_filp != NULL) //already opened
+        return res;
+
+    filp = filp_open(logging->m_filepath, O_WRONLY | O_APPEND | O_CREAT, 0644);
+    if (IS_ERR(filp)) {
+        res = PTR_ERR(filp);
+        //pr_err("ERR %s:%s Failed to open file. res=%d\n", MODULE_NAME, SECTION, res);
+    }
+    else
+        logging->m_filp = filp;
+
     return res;
 }
 static void __logging_filp_close( logging_t* logging )
@@ -343,8 +352,17 @@ static int _logging_process( logging_t* logging )
             if (rq->m_level == LOGGING_LEVEL_CMD){
                 if (0 == strcmp( rq->m_section, LOGGING_CHECK_RENEW )){
 #ifdef LOGFILE
-                    _logging_check_renew( logging );
+                    if (logging->m_is_file_logging)
+                        _logging_check_renew(logging);
 #endif
+                }
+                else if (0 == strcmp(rq->m_section, LOGGING_MODE_SYS)) {
+                    logging->m_is_file_logging = false;
+                    _logging_close(logging);
+                }
+                else if (0 == strcmp(rq->m_section, LOGGING_MODE_FILE)) {
+                    logging->m_is_file_logging = true;
+                    _logging_open(logging);
                 }
             }
         }
@@ -389,17 +407,14 @@ int _logging_thread( void *data )
     int result = SUCCESS;
     logging_t* logging = (logging_t*)data;
 #ifdef LOGFILE
-    bool is_file_logging = false;
+    logging->m_is_file_logging = false;
     {
         int res = SUCCESS;
 
         res = _logging_filename_create(logging);
         if (res == SUCCESS) {
-            res = _logging_open(logging);
-            if (SUCCESS == res)
-                is_file_logging = true; // file opened for the first time
-            else
-                pr_err("ERR %s:%s Failed to create file [%s]\n", MODULE_NAME, SECTION, logging->m_filepath);
+            logging->m_is_file_logging = true;
+            _logging_open(logging);
         }
         else
             pr_warn("WARN %s:%s Logging to file will be not performed\n", MODULE_NAME, SECTION);
@@ -413,15 +428,14 @@ int _logging_thread( void *data )
         int res = _logging_waiting( logging );
         if (res == SUCCESS) {
 #ifdef LOGFILE
-            if (is_file_logging && (logging->m_filp == NULL))
+            if (logging->m_is_file_logging)
                 _logging_open(logging);
 #endif
             result = _logging_process(logging);
         }
         else if (res == -ETIME) {
 #ifdef LOGFILE
-            if (is_file_logging)
-                _logging_close(logging);
+            _logging_close(logging);
             continue;
 #endif
         }
@@ -550,6 +564,23 @@ static int _logging_buffer( const char* section, const unsigned level, const cha
 void logging_renew_check( void )
 {
     _logging_buffer( LOGGING_CHECK_RENEW, LOGGING_LEVEL_CMD, NULL, 0 );
+}
+
+void logging_mode_sys(void)
+{
+    _logging_buffer(LOGGING_MODE_SYS, LOGGING_LEVEL_CMD, NULL, 0);
+}
+
+void logging_mode_file(void)
+{
+    _logging_buffer(LOGGING_MODE_FILE, LOGGING_LEVEL_CMD, NULL, 0);
+}
+
+void logging_flush(void)
+{
+    logging_t* logging = &g_logging;
+    while (0 != queue_sl_length(logging->m_rq_proc_queue))
+        schedule();
 }
 
 void log_s( const char* section, const unsigned level, const char* s )

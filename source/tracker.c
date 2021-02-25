@@ -33,6 +33,31 @@ int tracker_done(void )
     return result;
 }
 
+#ifdef CONFIG_BLK_FILTER
+int tracker_find_by_queue(tracker_queue_t* queue, tracker_t** ptracker)
+{
+    int result = -ENODATA;
+
+    content_sl_t* content = NULL;
+    tracker_t* tracker = NULL;
+    CONTAINER_SL_FOREACH_BEGIN(trackers_container, content) {
+        tracker = (tracker_t*)content;
+
+        if (queue == tracker->tracker_queue) {
+            if (ptracker != NULL)
+                *ptracker = tracker;
+
+            result = SUCCESS;
+            break;
+        }
+    }
+    CONTAINER_SL_FOREACH_END(trackers_container);
+
+    return result;
+}
+
+#else //CONFIG_BLK_FILTER
+
 int tracker_find_by_queue_and_sector( tracker_queue_t* queue, sector_t sector, tracker_t** ptracker )
 {
     int result = -ENODATA;
@@ -94,6 +119,7 @@ int tracker_find_intersection(tracker_queue_t* queue, sector_t b1, sector_t e1, 
 
     return result;
 }
+#endif //CONFIG_BLK_FILTER
 
 int tracker_find_by_dev_id( dev_t dev_id, tracker_t** ptracker )
 {
@@ -159,7 +185,7 @@ int tracker_enum_cbt_info( int max_count, struct cbt_info_s* p_cbt_info, int* p_
             if (tracker->cbt_map){
                 p_cbt_info[count].cbt_map_size = tracker->cbt_map->map_size;
                 p_cbt_info[count].snap_number = (unsigned char)tracker->cbt_map->snap_number_previous;
-                veeam_uuid_copy((veeam_uuid_t*)(p_cbt_info[count].generationId), &tracker->cbt_map->generationId);
+                veeam_uuid_copy((veeam_uuid_t*)(p_cbt_info[count].generationId), &tracker->cbt_map->generationId_previous);
             }
             else{
                 p_cbt_info[count].cbt_map_size = 0;
@@ -209,12 +235,15 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
         return result;
     do{
         struct super_block* superblock = NULL;
-
+#ifdef CONFIG_BLK_FILTER
+        log_tr_format("Create tracker for disk %s partition #%d.",
+            tracker->target_dev->bd_disk->disk_name, tracker->target_dev->bd_partno);
+#else
         log_tr_format( "Create tracker for device [%d:%d]. Start 0x%llx sector, capacity 0x%llx sectors",
             MAJOR( tracker->original_dev_id ), MINOR( tracker->original_dev_id ), 
             (unsigned long long)blk_dev_get_start_sect( tracker->target_dev ),
             (unsigned long long)blk_dev_get_capacity(tracker->target_dev));
-
+#endif
 
         if (cbt_map == NULL){
             cbt_map = cbt_map_create(cbt_block_size_degree-SECTOR_SHIFT, blk_dev_get_capacity(tracker->target_dev));
@@ -235,7 +264,11 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
             tracker->is_unfreezable = true;
             break;
         }
+#ifdef CONFIG_BLK_FILTER
+        result = tracker_queue_ref(tracker->target_dev->bd_disk, tracker->target_dev->bd_partno, &tracker->tracker_queue);
+#else
         result = tracker_queue_ref( bdev_get_queue( tracker->target_dev ), &tracker->tracker_queue );
+#endif
         superblock = blk_thaw_bdev( tracker->original_dev_id, tracker->target_dev, superblock );
 
     }while(false);

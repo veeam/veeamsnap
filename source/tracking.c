@@ -14,6 +14,73 @@
 #define SECTION "tracking  "
 #include "log_format.h"
 
+#ifdef CONFIG_BLK_FILTER
+/**
+ * tracking_submit_bio() - Intercept bio by block io layer filter
+ */
+bool tracking_submit_bio(struct bio *bio, blk_qc_t *result)
+{
+    bool was_catched = false;
+
+    tracker_queue_t* tracker_queue = NULL;
+    snapdata_collector_t* collector = NULL;
+    tracker_t* tracker = NULL;
+
+    bio_get(bio);
+
+    if (SUCCESS == tracker_queue_find(bio->bi_disk, bio->bi_partno, &tracker_queue)) {
+        if (SUCCESS == tracker_find_by_queue(tracker_queue, &tracker)) {
+            //find tracker by queue
+            if (op_is_write(bio_op(bio))) {// only write request processed
+                if (SUCCESS == snapdata_collect_Find(bio, &collector))
+                    snapdata_collect_Process(collector, bio);
+            }
+
+            if ((bio->bi_end_io != blk_direct_bio_endio) &&
+                (bio->bi_end_io != blk_redirect_bio_endio) &&
+                (bio->bi_end_io != blk_deferred_bio_endio)) {
+
+                if (tracker->is_unfreezable)
+                    down_read(&tracker->unfreezable_lock);
+
+                if (atomic_read(&tracker->is_captured)) {
+                    // do copy-on-write
+                    int res = defer_io_redirect_bio(tracker->defer_io, bio, tracker);
+                    if (SUCCESS == res) {
+                        was_catched = true;
+                        *result = 0;
+                    }
+                }
+
+                if (tracker->is_unfreezable)
+                    up_read(&tracker->unfreezable_lock);
+            }
+
+            if (!was_catched) {
+                bool cbt_locked = false;
+
+                if (tracker && bio_data_dir(bio) && bio_has_data(bio)) {
+                    cbt_locked = tracker_cbt_bitmap_lock(tracker);
+                    if (cbt_locked)
+                    {
+                        sector_t sectStart = bio_bi_sector(bio);
+                        sector_t sectCount = sector_from_size(bio_bi_size(bio));
+                        tracker_cbt_bitmap_set(tracker, sectStart, sectCount);
+                    }
+                }
+                if (cbt_locked)
+                    tracker_cbt_bitmap_unlock(tracker);
+            }
+        }
+    }
+
+    bio_put(bio);
+
+    return was_catched;
+}
+
+#else //CONFIG_BLK_FILTER
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
 
 #ifdef HAVE_MAKE_REQUEST_INT
@@ -39,6 +106,7 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 
     if (SUCCESS == tracker_queue_find(q, &tracker_queue)){
         //find tracker by queue
+        BUG_ON((tracker_queue->original_make_request_fn == NULL));
 
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
         if ( bio->bi_rw & WRITE ){// only write request processed
@@ -55,7 +123,7 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
         if (SUCCESS == tracker_find_by_queue_and_sector( tracker_queue, bi_sector, &tracker )){
             sector_t sectStart = 0;
             sector_t sectCount = 0;
-
+            
             sectStart = (bi_sector - blk_dev_get_start_sect( tracker->target_dev ));
             sectCount = sector_from_size( bi_size );
 
@@ -119,6 +187,7 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
         log_err("CRITICAL! Cannot find tracker queue");
 
     bio_put(bio);
+
 #if  LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
 
 #ifdef HAVE_MAKE_REQUEST_INT
@@ -129,6 +198,8 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
     return result;
 #endif
 }
+
+#endif //CONFIG_BLK_FILTER
 
 int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long long snapshot_id)
 {
@@ -192,13 +263,25 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
         tracker_queue_t* tracker_queue = NULL;
 
         do {//check space already under tracking
+#ifdef CONFIG_BLK_FILTER
+            //
+#else
             sector_t sectStart;
             sector_t sectEnd;
-
+#endif
             result = blk_dev_open(dev_id, &target_dev);
             if (result != SUCCESS)
                 break;
 
+#ifdef CONFIG_BLK_FILTER
+            if (SUCCESS == tracker_queue_find(target_dev->bd_disk, target_dev->bd_partno, &tracker_queue)) {
+                // one tracker for one partition and for one tracker_queue
+                // so it`s not normal then tracker_queue exist without tracker.
+                result = -EALREADY;
+                log_err("Tracker queue already exist.");
+                break;
+            }
+#else //CONFIG_BLK_FILTER
             sectStart = blk_dev_get_start_sect(target_dev);
             sectEnd = blk_dev_get_capacity(target_dev) + sectStart;
 
@@ -216,7 +299,7 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
                     }
                 }
             }
-
+#endif //CONFIG_BLK_FILTER
             result = tracker_create(snapshot_id, dev_id, cbt_block_size_degree, NULL, &tracker);
             if (SUCCESS != result)
                 log_err_d("Failed to create tracker. errno=", result);

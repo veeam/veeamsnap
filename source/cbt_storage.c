@@ -139,7 +139,8 @@ int cbt_storage_open(cbt_persistent_parameters_t* params, cbt_storage_accessor_t
         }
 
         //allocate page
-        if (NULL == (accessor->pg = alloc_page(GFP_KERNEL))){
+        accessor->pg = alloc_page(GFP_KERNEL);
+        if (NULL == accessor->pg){
             log_err("Failed to allocate page");
             res = -ENOMEM;
             break;
@@ -179,7 +180,8 @@ int cbt_storage_check(cbt_storage_accessor_t* accessor)
     int res = SUCCESS;
     //check all pages
 
-    //log_tr("[TBD] Checking CRC32 for all pages:");
+    //log_tr("Checking CRC32 for all pages:");
+    log_tr("DEBUG!Reading first page of CBT data");
     accessor->page_number = 0;
     accessor->used_page_count = accessor->page_count;
     res = _cbt_storage_read_page(accessor);
@@ -191,11 +193,14 @@ int cbt_storage_check(cbt_storage_accessor_t* accessor)
     accessor->time.tv_sec = accessor->page->tv_sec;
     accessor->time.tv_nsec = accessor->page->tv_nsec;
 
+    log_tr_llx("DEBUG!padding=", accessor->padding);
+
     if (accessor->time.tv_sec == 0ull){
         log_tr("Persistent CBT data is empty");
         accessor->used_page_count = 0;
     }
 
+    log_tr("DEBUG!Reading other pages of CBT data");
     for (accessor->page_number = 1; accessor->page_number < accessor->page_count; ++accessor->page_number){
         res = _cbt_storage_read_page(accessor);
         if (res != SUCCESS){

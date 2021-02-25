@@ -229,9 +229,7 @@ struct block_device* blkdev,
 int blk_direct_submit_page( struct block_device* blkdev, int direction, sector_t ofs_sect, struct page* pg )
 {
     int res = -EIO;
-
     blk_direct_bio_complete_t* bio_compl = NULL;
-
     struct bio *bb = _blk_dev_direct_bio_alloc(1);
     if (bb == NULL){
         log_err( "Failed to allocate bio for direct IO." );
@@ -239,6 +237,7 @@ int blk_direct_submit_page( struct block_device* blkdev, int direction, sector_t
     }
     bio_compl = (blk_direct_bio_complete_t*)bb->bi_private;
 
+    BUG_ON(blkdev == NULL);
 #ifdef bio_set_dev
     bio_set_dev(bb, blkdev);
 #else
@@ -263,6 +262,7 @@ int blk_direct_submit_page( struct block_device* blkdev, int direction, sector_t
 #endif
     bio_bi_sector( bb ) = ofs_sect;
 
+    BUG_ON(pg == NULL);
     if (0 != bio_add_page( bb, pg, PAGE_SIZE, 0 )){
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
         submit_bio( bb->bi_rw, bb );

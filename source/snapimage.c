@@ -405,10 +405,10 @@ int _snapimage_ioctl( struct block_device *bdev, fmode_t mode, unsigned cmd, uns
                     }
                 }
                 //else
-                //    log_err_d("[TBD] Unable to read trace info, errno=", 0-res);
+                //    log_err_d(" Unable to read trace info, errno=", 0-res);
             }
             else{
-                //log_err("[TBD] Unable to read trace info: invalid user buffer");
+                //log_err(" Unable to read trace info: invalid user buffer");
                 res = -EINVAL;
             }
             //log_tr("DEBUG! IOCTL_IMAGE_TRACE_READ complete");
@@ -441,9 +441,15 @@ int _snapimage_compat_ioctl( struct block_device *bdev, fmode_t mode, unsigned c
 }
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
+blk_qc_t _snapimage_submit_bio(struct bio *bio);
+#endif
 
 static struct block_device_operations g_snapimage_ops = {
     .owner = THIS_MODULE,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
+    .submit_bio = _snapimage_submit_bio,
+#endif
     .open = _snapimage_open,
     .ioctl = _snapimage_ioctl,
     .release = _snapimage_close,
@@ -631,11 +637,16 @@ int _snapimage_make_request( struct request_queue *q, struct bio *bio )
 #else
 void _snapimage_make_request( struct request_queue *q, struct bio *bio )
 #endif
-
-#else
-blk_qc_t _snapimage_make_request(struct request_queue *q, struct bio *bio)
-#endif
 {
+#elif LINUX_VERSION_CODE < KERNEL_VERSION( 5, 9, 0 )
+blk_qc_t _snapimage_make_request(struct request_queue *q, struct bio *bio)
+{
+#else
+blk_qc_t _snapimage_submit_bio(struct bio *bio)
+{
+    struct request_queue *q = bio->bi_disk->queue;
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION( 4, 4, 0 )
     blk_qc_t result = SUCCESS;
 #else
@@ -816,7 +827,9 @@ int snapimage_create( dev_t original_dev )
 #ifdef VEEAMSNAP_MQ_IO
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0)
         image->queue = blk_alloc_queue(GFP_KERNEL);
-#else
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
+        image->queue = blk_alloc_queue(NUMA_NO_NODE);
+#else // KERNEL_VERSION(5,7,X) and KERNEL_VERSION(5,8,X)
         image->queue = blk_alloc_queue(_snapimage_make_request, NUMA_NO_NODE);
 #endif
 #else
@@ -824,7 +837,7 @@ int snapimage_create( dev_t original_dev )
             image->queue = blk_init_queue(NULL, NULL);
         else
             image->queue = blk_init_queue(NULL, &image->queue_lock);
-#endif
+#endif //VEEAMSNAP_MQ_IO
         if (NULL == image->queue){
             log_err( "Unable to create snapshot image: failed to allocate block device queue" );
             res = -ENOMEM;

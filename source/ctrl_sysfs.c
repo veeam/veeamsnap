@@ -46,6 +46,13 @@ static ssize_t blkdev_notify_show(struct class *class, char *buf)
     return strlen(buf);
 }
 
+enum ENotifyCommandType
+{
+    NotifyCommandInvalid = 0,
+    NotifyCommandAdd = 1,
+    NotifyCommandRemove = 2
+};
+
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,32)
 static ssize_t blkdev_notify_store(struct class *class, struct class_attribute *attr, const char *buf, size_t count) 
 #else
@@ -60,7 +67,7 @@ static ssize_t blkdev_notify_store(struct class *class, const char *buf, size_t 
     size_t ofs = 0;
     size_t len = 0;
 
-    u32 type = 0;
+    enum ENotifyCommandType type = NotifyCommandInvalid;
     char* dev_name = NULL;
     char* dev_path = NULL;
 
@@ -78,15 +85,15 @@ static ssize_t blkdev_notify_store(struct class *class, const char *buf, size_t 
                 switch (state){
                 case 0://add or remove
                     if ((len == 3) && (0 == memcmp("add", buf + ofs, 3))){
-                        type = 1;
+                        type = NotifyCommandAdd;
                         //log_tr("DEBUG! Found add command");
                     }
                     else if ((len == 6) && (0 == memcmp("remove", buf + ofs, 6))){
-                        type = 2;
+                        type = NotifyCommandRemove;
                         //log_tr("DEBUG! Found remove command");
                     }else{
                         log_tr("Invalid command found");
-                        type = 0;
+                        type = NotifyCommandInvalid;
                     }
                     break;
                 case 1://device name
@@ -122,10 +129,10 @@ static ssize_t blkdev_notify_store(struct class *class, const char *buf, size_t 
     }
 
     //call block device notifier
-    if ((res == SUCCESS) && (dev_name != NULL) && (dev_path != NULL) && (type != 0)){
-        if (type == 1)
+    if ((res == SUCCESS) && (dev_name != NULL) && (dev_path != NULL) && (type != NotifyCommandInvalid)){
+        if (type == NotifyCommandAdd)
             cbt_persistent_device_attach(dev_name, dev_path);
-        if (type == 2)
+        if (type == NotifyCommandRemove)
             cbt_persistent_device_detach(dev_name, dev_path);
     }
     else{

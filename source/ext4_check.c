@@ -126,7 +126,7 @@ static int _ext4_get_sb(struct block_device* bdev, struct ext4_super_block **p_s
         struct ext4_super_block* sb = NULL;
         res = blk_direct_submit_page(bdev, READ_SYNC, 0, pg);//read first page
         if (res != SUCCESS){
-            log_err("[TBD] Failed to read first page from device");
+            log_err("Failed to read the first page from the device.");
             break;
         }
 
@@ -139,7 +139,7 @@ static int _ext4_get_sb(struct block_device* bdev, struct ext4_super_block **p_s
         memcpy(sb, addr+2*SECTOR512, sizeof(struct ext4_super_block));
 
         if (le16_to_cpu(sb->s_magic) != EXT4_SUPER_MAGIC){
-            log_tr("[TBD] ext fs not found");
+            log_tr("Ext fs not found.");
             dbg_kfree(sb);
             res = ENOENT;
             break;

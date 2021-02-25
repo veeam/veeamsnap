@@ -9,6 +9,9 @@
 int cbt_persistent_init(const char* cbtdata);
 void cbt_persistent_done(void);
 
+int cbt_persistent_cbtdata_new(const char* cbtdata);
+void cbt_persistent_cbtdata_free(void);
+
 int cbt_persistent_load(void);
 int cbt_persistent_store(void);
 
