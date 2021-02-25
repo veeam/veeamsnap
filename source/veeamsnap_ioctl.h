@@ -4,8 +4,7 @@
 
 #define MAX_TRACKING_DEVICE_COUNT    256
 
-//#define VEEAM_SNAP 'V'
-#define VEEAM_SNAP    0x56730000  // for compatibility with 4.0
+#define VEEAM_SNAP 'V'
 
 #pragma pack(push,1)
 //////////////////////////////////////////////////////////////////////////
@@ -117,7 +116,7 @@ struct ioctl_range_s{
 };
 
 //////////////////////////////////////////////////////////////////////////
-// snapshotdata - not supported 
+// snapshotdata - not supported
 /*
 
 struct ioctl_snapshotdata_memory_s
@@ -271,7 +270,7 @@ struct ioctl_persistentcbt_data_s
 #define VEEAM_IMAGE   0x69730000  // 'iV' <-> "Vi"
 
 //////////////////////////////////////////////////////////////////////////
-// io control for snapshot image 
+// io control for snapshot image
 typedef struct trace_record_s
 {
     unsigned long long time;
