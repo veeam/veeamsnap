@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include "page_array.h"
 
@@ -54,7 +56,7 @@ page_array_t* page_array_alloc( size_t count, int gfp_opt )
 
     if (SUCCESS == res)
         return arr;
-    
+
     page_array_free( arr );
     return NULL;
 }

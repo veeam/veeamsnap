@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include "snapstore_mem.h"
 
@@ -18,7 +20,7 @@ snapstore_mem_t* snapstore_mem_create( size_t available_blocks )
     mem = dbg_kzalloc( sizeof( snapstore_mem_t ), GFP_KERNEL );
     if (mem == NULL)
         return NULL;
-    
+
     blk_descr_mem_pool_init( &mem->pool, available_blocks );
 
     mem->blocks_limit = available_blocks;

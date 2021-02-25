@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 13, 0 )
@@ -41,6 +43,6 @@ static inline void veeam_generate_random_uuid( unsigned char uuid[UUID_SIZE] )
 #define veeam_generate_random_uuid generate_random_uuid
 
 
-#endif 
+#endif
 
 

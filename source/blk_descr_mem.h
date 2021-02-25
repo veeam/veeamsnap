@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 #include "blk_descr_unify.h"
 #include "blk_descr_pool.h"

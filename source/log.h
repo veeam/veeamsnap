@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 #include "uuid_util.h"
 #include "range.h"

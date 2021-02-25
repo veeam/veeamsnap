@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include "ctrl_sysfs.h"
 
@@ -52,9 +54,9 @@ enum ENotifyCommandType
 };
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,32)
-static ssize_t blkdev_notify_store(struct class *class, struct class_attribute *attr, const char *buf, size_t count) 
+static ssize_t blkdev_notify_store(struct class *class, struct class_attribute *attr, const char *buf, size_t count)
 #else
-static ssize_t blkdev_notify_store(struct class *class, const char *buf, size_t count) 
+static ssize_t blkdev_notify_store(struct class *class, const char *buf, size_t count)
 #endif
 {
     int res = SUCCESS;

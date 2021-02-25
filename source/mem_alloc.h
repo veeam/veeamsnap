@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 
 #ifdef VEEAMSNAP_MEMORY_LEAK_CONTROL

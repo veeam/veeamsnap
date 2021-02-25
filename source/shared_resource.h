@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #pragma once
 
 typedef void (shared_resource_free_cb)(void* this_resource);

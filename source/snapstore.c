@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include "snapstore.h"
 #include "snapstore_device.h"
@@ -315,7 +317,7 @@ int zerosectors_add_ranges( rangevector_t* zero_sectors, page_array_t* ranges, s
 
         for (inx = 0; inx < ranges_cnt; ++inx){
             int res = SUCCESS;
-            
+
             range_t range;
             struct ioctl_range_s* ioctl_range = (struct ioctl_range_s*)page_get_element( ranges, inx, sizeof( struct ioctl_range_s ) );
 
@@ -413,7 +415,7 @@ int snapstore_add_file( veeam_uuid_t* id, page_array_t* ranges, size_t ranges_cn
     }
     if ((res == SUCCESS) && (current_blk_size != 0))
         log_warn( "Snapstore portion was not ordered by Copy-on-Write block size" );
-    
+
 #ifdef SNAPDATA_ZEROED
     if ((res == SUCCESS) && (snapstore->file != NULL)){
         snapstore_device_t* snapstore_device = snapstore_device_find_by_dev_id( snapstore->file->blk_dev_id );

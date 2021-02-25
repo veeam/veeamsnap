@@ -1,3 +1,5 @@
+// Copyright (c) Veeam Software Group GmbH
+
 #include "stdafx.h"
 #include <linux/poll.h>
 #include <linux/uaccess.h>
@@ -439,7 +441,7 @@ int ioctl_snapstore_file( unsigned long arg )
 {
     int res = SUCCESS;
     struct ioctl_snapstore_file_add_s param;
-    page_array_t* ranges = NULL;//struct ioctl_range_s* ranges = NULL;    
+    page_array_t* ranges = NULL;//struct ioctl_range_s* ranges = NULL;
     size_t ranges_buffer_size;
 
     if (0 != copy_from_user( &param, (void*)arg, sizeof( struct ioctl_snapstore_file_add_s ) )){
@@ -513,7 +515,7 @@ int ioctl_snapstore_file_multidev( unsigned long arg )
     {
     int res = SUCCESS;
     struct ioctl_snapstore_file_add_multidev_s param;
-    page_array_t* ranges = NULL;//struct ioctl_range_s* ranges = NULL;    
+    page_array_t* ranges = NULL;//struct ioctl_range_s* ranges = NULL;
     size_t ranges_buffer_size;
 
     if (0 != copy_from_user( &param, (void*)arg, sizeof( struct ioctl_snapstore_file_add_multidev_s ) )){
@@ -708,7 +710,7 @@ int ioctl_persistentcbt_data(unsigned long arg)
         log_tr("Cleanup persistent CBT data parameters");
         cbt_persistent_cbtdata_free();
     }
-    else 
+    else
     {
         cbtdata = dbg_kzalloc(param.size + 1, GFP_KERNEL);
         if (cbtdata == NULL) {
