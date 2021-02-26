@@ -18,7 +18,7 @@
 /**
  * tracking_submit_bio() - Intercept bio by blk_interposer
  */
-bool tracking_submit_bio(struct blk_interposer *interposer, struct bio *bio)
+bool tracking_submit_bio(struct bio *bio)
 {
     bool was_catched = false;
 
@@ -27,7 +27,7 @@ bool tracking_submit_bio(struct blk_interposer *interposer, struct bio *bio)
     tracker_t* tracker = NULL;
 
     bio_get(bio);
-    tracker_queue = container_of(interposer, tracker_queue_t, interposer);
+    tracker_queue = container_of(bio->bi_disk->interposer, tracker_queue_t, interposer);
 
     if (SUCCESS == tracker_find_by_queue_and_sector(tracker_queue, bio_bi_sector(bio), &tracker)) {
         sector_t sectStart = (bio_bi_sector(bio) - blk_dev_get_start_sect( tracker->target_dev ));

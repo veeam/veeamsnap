@@ -30,7 +30,19 @@ int tracker_queue_find(struct request_queue* queue, tracker_queue_t** ptracker_q
 
 void tracker_queue_unref(tracker_queue_t* ptracker_queue);
 
-#ifndef HAVE_BLK_INTERPOSER
+#ifdef HAVE_BLK_INTERPOSER
+#include <linux/blk-mq.h>
+static inline void blk_disk_freeze(struct gendisk *disk)
+{
+   blk_mq_freeze_queue(disk->queue);
+   blk_mq_quiesce_queue(disk->queue);
+}
+static inline void blk_disk_unfreeze(struct gendisk *disk)
+{
+   blk_mq_unquiesce_queue(disk->queue);
+   blk_mq_unfreeze_queue(disk->queue);
+}
+#else
 #ifdef VEEAMSNAP_MQ_REQUEST
 
 #include <linux/blk-mq.h>

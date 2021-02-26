@@ -9,11 +9,11 @@
 container_sl_t tracker_queue_container;
 
 #ifdef HAVE_BLK_INTERPOSER
-bool tracking_submit_bio(struct blk_interposer *interposer, struct bio *bio);
+bool tracking_submit_bio(struct bio *bio);
 
-static void submit_bio_interposer_fn(struct blk_interposer *interposer, struct bio *bio)
+static void submit_bio_interposer_fn(struct bio *bio)
 {
-    if (tracking_submit_bio(interposer, bio))
+    if (tracking_submit_bio(bio))
         return;
 
     /* add bio to bio_list then bio was not intercepted */
@@ -73,15 +73,11 @@ int tracker_queue_ref(struct gendisk *disk, tracker_queue_t** ptracker_queue)
 
     blk_disk_freeze(disk);
     {
-        ret = blk_interposer_attach(tr_q->disk, &tr_q->interposer,
-                                    submit_bio_interposer_fn, "veeamsnap");
-        if (unlikely(ret)) {
-            if (ret == -EBUSY)
-                log_err_s("Disks interposer is already occupied by ", tr_q->disk->interposer->ip_holder);
-        }
+        ret = blk_interposer_attach(disk, &tr_q->interposer, submit_bio_interposer_fn);
+        if (unlikely(ret))
+            log_err_d("Failed to attack blk_interposer. errno=", ret);
         else
             container_sl_push_back(&tracker_queue_container, &tr_q->content);
-
     }
     blk_disk_unfreeze(disk);
 
@@ -197,18 +193,13 @@ void tracker_queue_unref(tracker_queue_t* tracker_queue)
     if (atomic_dec_and_test(&tracker_queue->atomic_ref_count)) {
 #ifdef HAVE_BLK_INTERPOSER
         struct gendisk *disk = tracker_queue->disk;
-        struct blk_interposer *blk_ip;
 
         blk_disk_freeze(disk);
         {
-            blk_ip = blk_interposer_detach(disk, submit_bio_interposer_fn);
+            blk_interposer_detach(&tracker_queue->interposer, submit_bio_interposer_fn);
             tracker_queue->disk = NULL;
         }
         blk_disk_unfreeze(disk);
-
-        WARN_ON(IS_ERR(blk_ip));
-        if (IS_ERR(blk_ip))
-            log_err_d("Failed to detach interposer. errno=", 0-PTR_ERR(blk_ip));
 #else
         tracker_queue->original_queue->make_request_fn = tracker_queue->original_make_request_fn;
 #endif
