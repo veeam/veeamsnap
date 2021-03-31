@@ -180,7 +180,6 @@ int cbt_storage_check(cbt_storage_accessor_t* accessor)
     int res = SUCCESS;
     //check all pages
 
-    //log_tr("[TBD] Checking CRC32 for all pages:");
     log_tr("DEBUG!Reading first page of CBT data");
     accessor->page_number = 0;
     accessor->used_page_count = accessor->page_count;

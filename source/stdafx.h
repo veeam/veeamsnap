@@ -19,6 +19,15 @@
 #define VEEAMSNAP_BLK_FREEZE
 #endif
 
+#if defined(DISTRIB_NAME_RHEL)
+#if DISTRIB_VERSION_1 == 8
+#if DISTRIB_VERSION_2 == 4
+#define RHEL_8_4
+#define VEEAMSNAP_MQ_REQUEST
+#endif
+#endif
+#endif
+
 #include <linux/fs.h>
 #include <linux/types.h>
 #include <linux/genhd.h> // For basic block driver framework

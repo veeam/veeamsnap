@@ -328,7 +328,6 @@ int defer_io_redirect_bio( defer_io_t* defer_io, struct bio *bio, sector_t sectS
     dio_orig_req->sect.ofs = sectStart;
     dio_orig_req->sect.cnt = sectCount;
 
-
     bio_get(dio_orig_req->bio = bio);
 
     dio_orig_req->tracker = (tracker_t*)tracker;
