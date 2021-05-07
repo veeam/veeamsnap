@@ -53,34 +53,45 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 obj-m := $(KERNEL_MODULE_NAME).o
 $(KERNEL_MODULE_NAME)-y += $(KERNEL_MODULE_OBJECT_FILE_LIST)
 ccflags-y := -O2 -Wno-multichar
-SHELL:=/bin/bash 
+SHELL:=/bin/bash
 ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; val="DISTRIB_NAME.$$ID"; echo "-D"$${val//[.-]/_} | awk '{print toupper($$0)}' ; fi )
 ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; awk '{ n=split($$0,v,"."); for (i=0; ++i<=n;) print "-DDISTRIB_VERSION_"i"="v[i] }' <<< $$VERSION_ID ; fi )
 
 # try to find kernel headers files
 include_linux = "."
-ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/build/include/linux" && echo -n yes),yes) 
+ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/build/include/linux" && echo -n yes),yes)
 include_linux = /lib/modules/$(KERNEL_RELEASE)/build/include/linux
 endif
-ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/source/include/linux" && echo -n yes),yes) 
+ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/source/include/linux" && echo -n yes),yes)
 include_linux = /lib/modules/$(KERNEL_RELEASE)/source/include/linux
 endif
 
-# try to find patch for lookup_bdev 
-# https://patchwork.kernel.org/patch/7748091/ 
-ifeq ($(shell test -e $(include_linux)/fs.h && echo -n yes),yes) 
+# try to find patch for lookup_bdev
+# https://patchwork.kernel.org/patch/7748091/
+ifeq ($(shell test -e $(include_linux)/fs.h && echo -n yes),yes)
 ccflags-y += $(shell if [[ 0 -ne $(shell cat $(include_linux)/fs.h | grep 'lookup_bdev' | grep -c 'mask' ) ]]; then echo "-DLOOKUP_BDEV_MASK"; fi )
-endif 
+endif
+
+# try to find exported functions in rhel 8 kernel
+system_map = "/lib/modules/$(KERNEL_RELEASE)/System.map"
+ifeq ($(shell test -e $(system_map) && echo -n yes),yes) 
+ccflags-y += $(shell cat $(system_map) | grep '__ksymtab_blk_mq_make_request' >>/dev/null && echo "-DVEEAMSNAP_MQ_REQUEST")
+ccflags-y += $(shell cat $(system_map) | grep '__ksymtab_blk_alloc_queue_rh' >>/dev/null && echo "-DVEEAMSNAP_ALLOC_QUEUE_RH")
+endif
 
 all:
+	@echo Configuring...
+	#if [ ! -f config.h ]; then ./genconfig.sh ./config.h "$(KERNEL_RELEASE)"; fi;
+	./genconfig.sh ./config.h "$(KERNEL_RELEASE)"
 	@echo Making all...
 	@echo ccflags-y= $(ccflags-y)
-	make -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules
+	make -j$(shell npros) -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules
 	@echo Completed.
 
 clean:
 	@echo Cleaning ...
 	make -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) clean
+	@rm ./config.h
 	@echo Completed.
 
 install:

@@ -51,6 +51,8 @@ void _defer_io_finish( defer_io_t* defer_io, queue_sl_t* queue_in_progress )
             bio_put(_bio); //bio_put should be before orig_req->make_rq_fn
 #ifdef HAVE_BLK_INTERPOSER
             submit_bio_noacct(_bio);
+#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+            orig_req->make_rq_fn(_bio);
 #else
             orig_req->make_rq_fn( orig_req->q, _bio );
 #endif
@@ -308,7 +310,7 @@ int defer_io_stop( defer_io_t* defer_io )
 #ifdef HAVE_BLK_INTERPOSER
 int defer_io_redirect_bio(defer_io_t* defer_io, struct bio *bio, sector_t sectStart, sector_t sectCount, void* tracker)
 #else
-int defer_io_redirect_bio( defer_io_t* defer_io, struct bio *bio, sector_t sectStart, sector_t sectCount, struct request_queue *q, make_request_fn* TargetMakeRequest_fn, void* tracker )
+int defer_io_redirect_bio( defer_io_t* defer_io, struct bio *bio, sector_t sectStart, sector_t sectCount, make_request_fn* target_make_request_fn, void* tracker )
 #endif
 {
 
@@ -322,8 +324,8 @@ int defer_io_redirect_bio( defer_io_t* defer_io, struct bio *bio, sector_t sectS
         return -ENOMEM;
 
 #ifndef HAVE_BLK_INTERPOSER
-    dio_orig_req->q = q;
-    dio_orig_req->make_rq_fn = TargetMakeRequest_fn;
+    dio_orig_req->q = bio->bi_disk->queue;
+    dio_orig_req->make_rq_fn = target_make_request_fn;
 #endif
     dio_orig_req->sect.ofs = sectStart;
     dio_orig_req->sect.cnt = sectCount;

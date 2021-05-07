@@ -826,7 +826,7 @@ int snapimage_create( dev_t original_dev )
         image->open_bdev = NULL;
         image->open_cnt = 0;
 #ifdef VEEAMSNAP_MQ_IO
-#ifdef RHEL_8_4
+#ifdef VEEAMSNAP_ALLOC_QUEUE_RH
         image->queue = blk_alloc_queue_rh(_snapimage_make_request, NUMA_NO_NODE);
 #elif LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0)
         image->queue = blk_alloc_queue(GFP_KERNEL);
@@ -848,7 +848,7 @@ int snapimage_create( dev_t original_dev )
         }
         image->queue->queuedata = image;
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0)) && !defined(RHEL_8_4)
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0)) && !defined(VEEAMSNAP_ALLOC_QUEUE_RH)
         blk_queue_make_request( image->queue, _snapimage_make_request );
 #endif
 

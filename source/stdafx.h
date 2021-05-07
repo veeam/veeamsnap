@@ -7,24 +7,37 @@
 #include <linux/module.h>
 #include <linux/version.h>
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,2,0)
+#define HAVE_MAKE_REQUEST_INT
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)
+#ifndef VEEAMSNAP_MQ_IO
 #define VEEAMSNAP_MQ_IO
+#endif
 #endif
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0)) && (LINUX_VERSION_CODE < KERNEL_VERSION(5,9,0))
+#ifndef VEEAMSNAP_MQ_REQUEST
 #define VEEAMSNAP_MQ_REQUEST
+#endif
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
+#if defined(blk_has_interposer)
+#ifndef HAVE_BLK_INTERPOSER
+#define HAVE_BLK_INTERPOSER
+#endif
+#else
+#ifndef VEEAMSNAP_DISK_SUBMIT_BIO
+#define VEEAMSNAP_DISK_SUBMIT_BIO
+#endif
+#endif
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
+#ifndef VEEAMSNAP_BLK_FREEZE
 #define VEEAMSNAP_BLK_FREEZE
-#endif
-
-#if defined(DISTRIB_NAME_RHEL)
-#if DISTRIB_VERSION_1 == 8
-#if DISTRIB_VERSION_2 == 4
-#define RHEL_8_4
-#define VEEAMSNAP_MQ_REQUEST
-#endif
 #endif
 #endif
 
@@ -47,24 +60,11 @@
 #include <asm/atomic.h>
 #include <linux/random.h>
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
-#if defined(blk_has_interposer)
-#ifndef HAVE_BLK_INTERPOSER
-#define HAVE_BLK_INTERPOSER
-#endif
-#else
-#error For kernel 5.9 or later, you should use the blk_interposer patch.
-#endif
-#endif
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,2,0)
-#define HAVE_MAKE_REQUEST_INT
-#endif
-
 #ifndef pr_warn
 #define pr_warn pr_warning
 #endif
 
+#include "config.h"
 #include "log.h"
 
 #define LICENCE_STR "GPL"
