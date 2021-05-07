@@ -1,0 +1,52 @@
+From 513d65743fa77667e30545d5e73e177b6841cc12 Mon Sep 17 00:00:00 2001
+From: Sergei Shtepa <sergei.shtepa@veeam.com>
+Date: Tue, 9 Feb 2021 12:57:49 +0100
+Subject: [PATCH 1/2] block: add blk_mq_is_queue_frozen()
+
+blk_mq_is_queue_frozen() allow to assert that the queue is frozen.
+
+Signed-off-by: Sergei Shtepa <sergei.shtepa@veeam.com>
+---
+ block/blk-mq.c         | 13 +++++++++++++
+ include/linux/blk-mq.h |  1 +
+ 2 files changed, 14 insertions(+)
+
+diff --git a/block/blk-mq.c b/block/blk-mq.c
+index 2a1eff60c797..9e467892b76b 100644
+--- a/block/blk-mq.c
++++ b/block/blk-mq.c
+@@ -159,6 +159,19 @@ int blk_mq_freeze_queue_wait_timeout(struct request_queue *q,
+ }
+ EXPORT_SYMBOL_GPL(blk_mq_freeze_queue_wait_timeout);
+ 
++
++bool blk_mq_is_queue_frozen(struct request_queue *q)
++{
++	bool ret;
++
++	mutex_lock(&q->mq_freeze_lock);
++	ret = percpu_ref_is_dying(&q->q_usage_counter) && percpu_ref_is_zero(&q->q_usage_counter);
++	mutex_unlock(&q->mq_freeze_lock);
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(blk_mq_is_queue_frozen);
++
+ /*
+  * Guarantee no request is in use, so we can change any data structure of
+  * the queue afterward.
+diff --git a/include/linux/blk-mq.h b/include/linux/blk-mq.h
+index f8ea27423d1d..17f2128a4fd7 100644
+--- a/include/linux/blk-mq.h
++++ b/include/linux/blk-mq.h
+@@ -524,6 +524,7 @@ void blk_freeze_queue_start(struct request_queue *q);
+ void blk_mq_freeze_queue_wait(struct request_queue *q);
+ int blk_mq_freeze_queue_wait_timeout(struct request_queue *q,
+ 				     unsigned long timeout);
++bool blk_mq_is_queue_frozen(struct request_queue *q);
+ 
+ int blk_mq_map_queues(struct blk_mq_queue_map *qmap);
+ void blk_mq_update_nr_hw_queues(struct blk_mq_tag_set *set, int nr_hw_queues);
+-- 
+2.20.1
+
