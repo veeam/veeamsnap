@@ -160,12 +160,20 @@ int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk)
         unsigned long cr0;
 
         preempt_disable();
+        local_irq_disable();
+        barrier();
+
         cr0 = disable_page_protection();
+        barrier();
 
         tr_disk->original_make_request_fn = disk->fops->submit_bio;
         ((struct block_device_operations *)disk->fops)->submit_bio = tracking_make_request;
+        barrier();
 
         reenable_page_protection(cr0);
+        barrier();
+
+        local_irq_enable();
         preempt_enable();
     }
 #else
