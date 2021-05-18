@@ -74,24 +74,23 @@ endif
 
 # try to find exported functions in rhel 8 kernel
 system_map = "/lib/modules/$(KERNEL_RELEASE)/System.map"
-ifeq ($(shell test -e $(system_map) && echo -n yes),yes) 
+ifeq ($(shell test -e $(system_map) && echo -n yes),yes)
 ccflags-y += $(shell cat $(system_map) | grep '__ksymtab_blk_mq_make_request' >>/dev/null && echo "-DVEEAMSNAP_MQ_REQUEST")
 ccflags-y += $(shell cat $(system_map) | grep '__ksymtab_blk_alloc_queue_rh' >>/dev/null && echo "-DVEEAMSNAP_ALLOC_QUEUE_RH")
 endif
 
 all:
 	@echo Configuring...
-	#if [ ! -f config.h ]; then ./genconfig.sh ./config.h "$(KERNEL_RELEASE)"; fi;
-	./genconfig.sh ./config.h "$(KERNEL_RELEASE)"
+	chmod +x ./genconfig.sh && ./genconfig.sh ./config.h "$(KERNEL_RELEASE)"
 	@echo Making all...
 	@echo ccflags-y= $(ccflags-y)
-	make -j$(shell npros) -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules
+	make -j$(shell nproc) -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules
 	@echo Completed.
 
 clean:
 	@echo Cleaning ...
 	make -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) clean
-	@rm ./config.h
+	@rm -f ./config.h
 	@echo Completed.
 
 install:
