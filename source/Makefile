@@ -3,7 +3,12 @@
 #
 KERNEL_RELEASE := $(shell uname -r)
 KERNEL_MODULE_NAME := veeamsnap
-VERSION?=5.0.0.4318
+
+VERSION_MAJOR?=5
+VERSION_MINOR?=0
+VERSION_REV?=0
+VERSION_BUILD?=0
+VERSION=${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_REV}.${VERSION_BUILD}
 
 KERNEL_MODULE_OBJECT_FILE_LIST := \
 	log.o \
@@ -116,7 +121,7 @@ unload:
 
 PWD=$(shell pwd)
 BUILDROOT?=../build
-dkms:
+dkms-deb-pkg:
 	mkdir -p $(BUILDROOT)/src
 	@cp -r ./* $(BUILDROOT)/src
 	@cp -r ../debian $(BUILDROOT)/

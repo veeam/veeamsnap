@@ -15,6 +15,9 @@ typedef struct _tracker_disk_s
     content_sl_t content;
 #ifdef HAVE_BLK_INTERPOSER
     struct blk_interposer interposer;
+#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+    struct block_device_operations fops;
+    struct block_device_operations* original_fops;
 #else
     make_request_fn* original_make_request_fn;
 #endif
@@ -60,10 +63,14 @@ static inline make_request_fn * tracker_disk_get_original_make_request(tracker_d
 
 #elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 
+#if BLK_MQ_SUBMIT_BIO_ADDR == 0x0
+#error "function blk_mq_submit_bio is not found"
+#endif
+
 static inline make_request_fn * tracker_disk_get_original_make_request(tracker_disk_t* tr_disk)
 {
-    if (tr_disk->original_make_request_fn)
-        return tr_disk->original_make_request_fn;
+    if (tr_disk->original_fops->submit_bio)
+        return tr_disk->original_fops->submit_bio;
 
     /* prevents distortion of q_usage_counter counter in blk_queue_exit() */
     percpu_ref_get(&tr_disk->disk->queue->q_usage_counter);

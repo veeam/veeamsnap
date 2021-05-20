@@ -6,6 +6,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/version.h>
+#include "config.h"
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,2,0)
 #define HAVE_MAKE_REQUEST_INT
@@ -64,7 +65,6 @@
 #define pr_warn pr_warning
 #endif
 
-#include "config.h"
 #include "log.h"
 
 #define LICENCE_STR "GPL"

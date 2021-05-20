@@ -6,6 +6,7 @@
 #include "blk_util.h"
 
 #define SECTION "tracker   "
+#include "log_format.h"
 
 container_sl_t tracker_disk_container;
 
@@ -134,7 +135,7 @@ int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk)
 
     res = tracker_disk_find(disk, &tr_disk);
     if (SUCCESS == res){
-        log_tr("Tracker disk already exists");
+        log_tr_format("Tracker disk already exists for [%s]", disk->disk_name);
 
         *ptracker_disk = tr_disk;
         atomic_inc( &tr_disk->atomic_ref_count );
@@ -147,7 +148,7 @@ int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk)
         return res;
     }
 
-    log_tr("New tracker disk create" );
+    log_tr_format("New tracker create for disk [%s]" , disk->disk_name);
 
     tr_disk = (tracker_disk_t*)container_sl_new(&tracker_disk_container);
     if (NULL==tr_disk)
@@ -156,26 +157,32 @@ int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk)
     atomic_set( &tr_disk->atomic_ref_count, 0 );
 
 #ifdef VEEAMSNAP_DISK_SUBMIT_BIO
-    {
-        unsigned long cr0;
+    /* copy fops from original disk except submit_bio */
+    tr_disk->original_fops = (struct block_device_operations *)(disk->fops);
+    memcpy(&tr_disk->fops, tr_disk->original_fops, sizeof(struct block_device_operations));
+    tr_disk->fops.submit_bio = tracking_make_request;
+    barrier();
 
-        preempt_disable();
-        local_irq_disable();
+    /* lock cpu */
+    preempt_disable();
+    local_irq_disable();
+    barrier();
+
+    {/* change original disks fops */
+        unsigned long cr0 = disable_page_protection();
         barrier();
 
-        cr0 = disable_page_protection();
-        barrier();
-
-        tr_disk->original_make_request_fn = disk->fops->submit_bio;
-        ((struct block_device_operations *)disk->fops)->submit_bio = tracking_make_request;
+        disk->fops = &tr_disk->fops;
         barrier();
 
         reenable_page_protection(cr0);
         barrier();
-
-        local_irq_enable();
-        preempt_enable();
     }
+
+    /* unlock cpu */
+    local_irq_enable();
+    preempt_enable();
+
 #else
     tr_disk->original_make_request_fn = disk->queue->make_request_fn;
     disk->queue->make_request_fn = tracking_make_request;
@@ -186,7 +193,7 @@ int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk)
     *ptracker_disk = tr_disk;
     atomic_inc( &tr_disk->atomic_ref_count );
 
-    log_tr("New tracker disk was created");
+    log_tr_format("New tracker disk was created for disk [%s]", disk->disk_name);
 
     return SUCCESS;
 }
@@ -230,17 +237,26 @@ void tracker_disk_unref(tracker_disk_t* tr_disk)
         struct gendisk *disk = tr_disk->disk;
 
         blk_disk_freeze(disk);
-        {
-            unsigned long cr0;
 
-            preempt_disable();
-            cr0 = disable_page_protection();
+        /* lock cpu */
+        preempt_disable();
+        local_irq_disable();
+        barrier();
 
-            ((struct block_device_operations *)disk->fops)->submit_bio = tr_disk->original_make_request_fn;
+        {/* restore original disks fops */
+            unsigned long cr0 = disable_page_protection();
+            barrier();
+
+            disk->fops = tr_disk->original_fops;
+            barrier();
 
             reenable_page_protection(cr0);
-            preempt_enable();
         }
+
+        /* unlock cpu */
+        local_irq_enable();
+        preempt_enable();
+
         blk_disk_unfreeze(disk);
 #else
         tr_disk->disk->queue->make_request_fn = tr_disk->original_make_request_fn;

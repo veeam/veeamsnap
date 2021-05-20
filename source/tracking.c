@@ -77,6 +77,36 @@ bool tracking_submit_bio(struct bio *bio)
 #else //HAVE_BLK_INTERPOSER
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
+static inline void tracking_original_make_request(tracker_disk_t* tr_disk, struct request_queue *q, struct bio *bio)
+{
+    make_request_fn* fn = tracker_disk_get_original_make_request(tr_disk);
+
+    if (!fn) {
+        log_err("Invalid original bio processing function");
+        bio_io_error(bio);
+    }
+
+    fn(q, bio);
+}
+#else
+static inline blk_qc_t tracking_original_make_request(tracker_disk_t* tr_disk, struct bio *bio)
+{
+    make_request_fn* fn = tracker_disk_get_original_make_request(tr_disk);
+
+    if (!fn) {
+        log_err("Invalid original bio processing function");
+        bio_io_error(bio);
+        return BLK_QC_T_NONE;
+    }
+#ifdef VEEAMSNAP_DISK_SUBMIT_BIO
+    return fn(bio);
+#else
+    return fn(bio->bi_disk->queue, bio);
+#endif
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
 
 #ifdef HAVE_MAKE_REQUEST_INT
 int tracking_make_request(struct request_queue *q, struct bio *bio)
@@ -155,22 +185,12 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
                             tracker_cbt_bitmap_set( tracker, sectStart, sectCount );
                         //tracker_CbtBitmapUnlock( tracker );
                     }
-                    //call low level block device
-                    {
-                        make_request_fn* fn = tracker_disk_get_original_make_request(tr_disk);
 
-                        if (fn) {
-#ifdef VEEAMSNAP_DISK_SUBMIT_BIO
-                            fn(bio);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
+                    tracking_original_make_request(tr_disk, q, bio);
 #else
-                            fn(bio->bi_disk->queue, bio);
+                    result = tracking_original_make_request(tr_disk, bio);
 #endif
-                        } else {
-                            log_err("Invalid original bio processing function");
-                            bio_io_error(bio);
-                        }
-                    }
-
                     if (cbt_locked)
                         tracker_cbt_bitmap_unlock( tracker );
                 }
@@ -184,41 +204,24 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
                     if (cbt_locked)
                         tracker_cbt_bitmap_set( tracker, sectStart, sectCount );
                 }
-                {
-                    make_request_fn* fn = tracker_disk_get_original_make_request(tr_disk);
-
-                    if (fn) {
-#ifdef VEEAMSNAP_DISK_SUBMIT_BIO
-                        fn(bio);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
+                tracking_original_make_request(tr_disk, q, bio);
 #else
-                        fn(bio->bi_disk->queue, bio);
+                result = tracking_original_make_request(tr_disk, bio);
 #endif
-                    } else {
-                        log_err("Invalid original bio processing function");
-                        bio_io_error(bio);
-                    }
-                }
                 if (cbt_locked)
                     tracker_cbt_bitmap_unlock( tracker );
             }
         }else{
-            //call low level block device
-            make_request_fn* fn = tracker_disk_get_original_make_request(tr_disk);
-
-            if (fn) {
-#ifdef VEEAMSNAP_DISK_SUBMIT_BIO
-                fn(bio);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
+            tracking_original_make_request(tr_disk, q, bio);
 #else
-                fn(bio->bi_disk->queue, bio);
+            result = tracking_original_make_request(tr_disk, bio);
 #endif
-            } else {
-                log_err("Invalid original bio processing function");
-                bio_io_error(bio);
-            }
         }
 
     }else {
-        log_err("CRITICAL! Cannot find tracker disk");
+        log_err_format("CRITICAL! Cannot find tracker for disk [%s]", bio->bi_disk->disk_name);
         bio_io_error(bio);
     }
 
