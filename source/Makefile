@@ -3,6 +3,7 @@
 #
 KERNEL_RELEASE := $(shell uname -r)
 KERNEL_MODULE_NAME := veeamsnap
+VERSION?=5.0.0.4318
 
 KERNEL_MODULE_OBJECT_FILE_LIST := \
 	log.o \
@@ -79,9 +80,9 @@ ccflags-y += $(shell cat $(system_map) | grep '__ksymtab_blk_mq_make_request' >>
 ccflags-y += $(shell cat $(system_map) | grep '__ksymtab_blk_alloc_queue_rh' >>/dev/null && echo "-DVEEAMSNAP_ALLOC_QUEUE_RH")
 endif
 
-all:
+default:
 	@echo Configuring...
-	chmod +x ./genconfig.sh && ./genconfig.sh ./config.h "$(KERNEL_RELEASE)"
+	chmod +x ./genconfig.sh && ./genconfig.sh "$(KERNEL_RELEASE)"
 	@echo Making all...
 	@echo ccflags-y= $(ccflags-y)
 	make -j$(shell nproc) -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules
@@ -93,12 +94,16 @@ clean:
 	@rm -f ./config.h
 	@echo Completed.
 
-install:
+#install: default
+#	$(MAKE) -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules_install
+install: default
 	@echo Installing veeamsnap kernel module
 	mkdir -p /lib/modules/$(KERNEL_RELEASE)/kernel/drivers/veeam
 	cp $(KERNEL_MODULE_NAME).ko /lib/modules/$(KERNEL_RELEASE)/kernel/drivers/veeam
 	depmod
 	@echo Completed.
+uninstall:
+	$(RM) /lib/modules/$(KERNEL_RELEASE)/kernel/drivers/veeam/veeamsnap.ko
 
 load:
 	@echo Loading $(KERNEL_MODULE_NAME) kernel module from current folder
@@ -108,3 +113,18 @@ unload:
 	@echo Unloading $(KERNEL_MODULE_NAME) kernel module
 	@echo $(shell rmmod $(KERNEL_MODULE_NAME); rm -f /dev/$(KERNEL_MODULE_NAME))
 	$(shell rmmod $(KERNEL_MODULE_NAME))
+
+PWD=$(shell pwd)
+BUILDROOT?=../build
+dkms:
+	mkdir -p $(BUILDROOT)/src
+	@cp -r ./* $(BUILDROOT)/src
+	@cp -r ../debian $(BUILDROOT)/
+	chmod 0666 $(BUILDROOT)/debian/control
+	chmod 0766 $(BUILDROOT)/debian/rules
+	sed -i '0,/FILEVER_MAJOR [0-9]\+/s/FILEVER_MAJOR [0-9]\+/FILEVER_MAJOR $(VERSION_MAJOR)/g' $(BUILDROOT)/src/version.h
+	sed -i '0,/FILEVER_MINOR [0-9]\+/s/FILEVER_MINOR [0-9]\+/FILEVER_MINOR $(VERSION_MINOR)/g' $(BUILDROOT)/src/version.h
+	sed -i '0,/FILEVER_REVISION [0-9]\+/s/FILEVER_REVISION [0-9]\+/FILEVER_REVISION $(VERSION_REV)/g' $(BUILDROOT)/src/version.h
+	sed -i '0,/FILEVER_BUILD [0-9]\+/s/FILEVER_BUILD [0-9]\+/FILEVER_BUILD $(VERSION_BUILD)/g' $(BUILDROOT)/src/version.h
+	find $(BUILDROOT) -type f -exec sed -i 's/#PACKAGE_VERSION#/$(VERSION)/g' {} +
+	cd $(BUILDROOT) && dpkg-buildpackage -us -uc -b

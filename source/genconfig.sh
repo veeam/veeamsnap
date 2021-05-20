@@ -2,12 +2,16 @@
 
 # Generate config.h file with specific options for module
 
-OUTPUT_FILE=$1
-
-if [ ! -z "$2" ]; then
-	KERNEL_VERSION="$2"
+if [ ! -z "$1" ]; then
+	KERNEL_VERSION="$1"
 else
 	KERNEL_VERSION="$(uname -r)"
+fi
+
+if [ ! -z "$2" ]; then
+	OUTPUT_FILE=$2
+else
+	OUTPUT_FILE="$(dirname "$0")/config.h"
 fi
 
 echo "// Copyright (c) Veeam Software Group GmbH" > ${OUTPUT_FILE}
