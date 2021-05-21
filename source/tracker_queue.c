@@ -111,6 +111,26 @@ int tracker_disk_find(struct gendisk *disk, tracker_disk_t** ptracker_disk)
     return result;
 }
 
+void tracker_disk_unref(tracker_disk_t* tr_disk)
+{
+    if (atomic_dec_and_test(&tr_disk->atomic_ref_count)) {
+        struct gendisk *disk = tr_disk->disk;
+
+        blk_disk_freeze(disk);
+        {
+            blk_interposer_detach(&tr_disk->interposer, submit_bio_interposer_fn);
+            tr_disk->disk = NULL;
+        }
+        blk_disk_unfreeze(disk);
+
+        container_sl_free(&tr_disk->content);
+
+        log_tr("Tracker disk freed");
+    }
+    else
+        log_tr("Tracker disk is in use");
+}
+
 #else //HAVE_BLK_INTERPOSER
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
@@ -121,21 +141,29 @@ int tracking_make_request(struct request_queue *q, struct bio *bio);
 void tracking_make_request(struct request_queue *q, struct bio *bio);
 #endif
 
-#elif  defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 blk_qc_t tracking_make_request(struct bio *bio );
 #else
 blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio );
 #endif
 
 // find or create new tracker queue
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk)
+#else
+int tracker_disk_ref(struct request_queue *queue, tracker_disk_t** ptracker_disk)
+#endif
 {
     int res = SUCCESS;
     tracker_disk_t* tr_disk = NULL;
 
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
     res = tracker_disk_find(disk, &tr_disk);
+#else
+    res = tracker_disk_find(queue, &tr_disk);
+#endif
     if (SUCCESS == res){
-        log_tr_format("Tracker disk already exists for [%s]", disk->disk_name);
+        log_tr("Tracker disk already exists");
 
         *ptracker_disk = tr_disk;
         atomic_inc( &tr_disk->atomic_ref_count );
@@ -148,7 +176,7 @@ int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk)
         return res;
     }
 
-    log_tr_format("New tracker create for disk [%s]" , disk->disk_name);
+    log_tr("New tracker disk create");
 
     tr_disk = (tracker_disk_t*)container_sl_new(&tracker_disk_container);
     if (NULL==tr_disk)
@@ -156,7 +184,7 @@ int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk)
 
     atomic_set( &tr_disk->atomic_ref_count, 0 );
 
-#ifdef VEEAMSNAP_DISK_SUBMIT_BIO
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
     /* copy fops from original disk except submit_bio */
     tr_disk->original_fops = (struct block_device_operations *)(disk->fops);
     memcpy(&tr_disk->fops, tr_disk->original_fops, sizeof(struct block_device_operations));
@@ -183,22 +211,26 @@ int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk)
     local_irq_enable();
     preempt_enable();
 
-#else
-    tr_disk->original_make_request_fn = disk->queue->make_request_fn;
-    disk->queue->make_request_fn = tracking_make_request;
-#endif
-
     tr_disk->disk = disk;
+#else
+    tr_disk->original_make_request_fn = queue->make_request_fn;
+    queue->make_request_fn = tracking_make_request;
+
+    tr_disk->queue = queue;
+#endif
 
     *ptracker_disk = tr_disk;
     atomic_inc( &tr_disk->atomic_ref_count );
 
-    log_tr_format("New tracker disk was created for disk [%s]", disk->disk_name);
+    log_tr("New tracker disk was created");
 
     return SUCCESS;
 }
-
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 int tracker_disk_find( struct gendisk *disk, tracker_disk_t** ptracker_disk )
+#else
+int tracker_disk_find( struct request_queue *queue, tracker_disk_t** ptracker_disk )
+#endif
 {
     int result = -ENODATA;
     content_sl_t* pContent = NULL;
@@ -207,7 +239,12 @@ int tracker_disk_find( struct gendisk *disk, tracker_disk_t** ptracker_disk )
     CONTAINER_SL_FOREACH_BEGIN( tracker_disk_container, pContent )
     {
         tr_disk = (tracker_disk_t*)pContent;
-        if (tr_disk->disk == disk){
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+        if (tr_disk->disk == disk)
+#else
+        if (tr_disk->queue == queue)
+#endif
+        {
             *ptracker_disk = tr_disk;
 
             result = SUCCESS;    //don`t continue
@@ -217,23 +254,11 @@ int tracker_disk_find( struct gendisk *disk, tracker_disk_t** ptracker_disk )
 
     return result;
 }
-#endif //HAVE_BLK_INTERPOSER
 
 void tracker_disk_unref(tracker_disk_t* tr_disk)
 {
     if (atomic_dec_and_test(&tr_disk->atomic_ref_count)) {
-#ifdef HAVE_BLK_INTERPOSER
-        struct gendisk *disk = tr_disk->disk;
-
-        blk_disk_freeze(disk);
-        {
-            blk_interposer_detach(&tr_disk->interposer, submit_bio_interposer_fn);
-            tr_disk->disk = NULL;
-        }
-        blk_disk_unfreeze(disk);
-#else
-
-#ifdef VEEAMSNAP_DISK_SUBMIT_BIO
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
         struct gendisk *disk = tr_disk->disk;
 
         blk_disk_freeze(disk);
@@ -259,9 +284,7 @@ void tracker_disk_unref(tracker_disk_t* tr_disk)
 
         blk_disk_unfreeze(disk);
 #else
-        tr_disk->disk->queue->make_request_fn = tr_disk->original_make_request_fn;
-#endif
-
+        tr_disk->queue->make_request_fn = tr_disk->original_make_request_fn;
 #endif
         container_sl_free(&tr_disk->content);
 
@@ -270,3 +293,5 @@ void tracker_disk_unref(tracker_disk_t* tr_disk)
     else
         log_tr("Tracker disk is in use");
 }
+
+#endif //HAVE_BLK_INTERPOSER

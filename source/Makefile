@@ -127,6 +127,7 @@ dkms-deb-pkg:
 	@cp -r ../debian $(BUILDROOT)/
 	chmod 0666 $(BUILDROOT)/debian/control
 	chmod 0766 $(BUILDROOT)/debian/rules
+	chmod 0766 $(BUILDROOT)/src/genconfig.sh
 	sed -i '0,/FILEVER_MAJOR [0-9]\+/s/FILEVER_MAJOR [0-9]\+/FILEVER_MAJOR $(VERSION_MAJOR)/g' $(BUILDROOT)/src/version.h
 	sed -i '0,/FILEVER_MINOR [0-9]\+/s/FILEVER_MINOR [0-9]\+/FILEVER_MINOR $(VERSION_MINOR)/g' $(BUILDROOT)/src/version.h
 	sed -i '0,/FILEVER_REVISION [0-9]\+/s/FILEVER_REVISION [0-9]\+/FILEVER_REVISION $(VERSION_REV)/g' $(BUILDROOT)/src/version.h

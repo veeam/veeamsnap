@@ -34,7 +34,11 @@ bool tracking_submit_bio(struct bio *bio)
         sector_t sectCount = sector_from_size( bio_bi_size(bio) );
 
         if (op_is_write(bio_op(bio))) {// only write request processed
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
             if (SUCCESS == snapdata_collect_Find(bio, &collector))
+#else
+            if (SUCCESS == snapdata_collect_Find(bio, tr_disk->queue, &collector))
+#endif
                 snapdata_collect_Process(collector, bio);
         }
 
@@ -101,7 +105,7 @@ static inline blk_qc_t tracking_original_make_request(tracker_disk_t* tr_disk, s
 #ifdef VEEAMSNAP_DISK_SUBMIT_BIO
     return fn(bio);
 #else
-    return fn(bio->bi_disk->queue, bio);
+    return fn(tr_disk->queue, bio);
 #endif
 }
 #endif
@@ -136,13 +140,22 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 
     bio_get(bio);
 
-    if (SUCCESS == tracker_disk_find(bio->bi_disk, &tr_disk)){
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+    if (SUCCESS == tracker_disk_find(bio->bi_disk, &tr_disk))
+#else
+    if (SUCCESS == tracker_disk_find(q, &tr_disk))
+#endif
+    {
 #ifndef REQ_OP_BITS
         if ( bio->bi_rw & WRITE ){// only write request processed
 #else
         if ( op_is_write( bio_op( bio ) ) ){// only write request processed
 #endif
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
             if (SUCCESS == snapdata_collect_Find( bio, &collector ))
+#else
+            if (SUCCESS == snapdata_collect_Find( bio, tr_disk->queue, &collector ))
+#endif
                 snapdata_collect_Process( collector, bio );
         }
 
@@ -168,7 +181,13 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 
                 if (atomic_read( &tracker->is_captured ))
                 {// do copy-on-write
-                    int res = defer_io_redirect_bio( tracker->defer_io, bio, sectStart, sectCount, tracker_disk_get_original_make_request(tr_disk), tracker );
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+                    int res = defer_io_redirect_bio( tracker->defer_io, bio, sectStart, sectCount,
+                                    tracker_disk_get_original_make_request(tr_disk), tracker );
+#else
+                    int res = defer_io_redirect_bio( tracker->defer_io, bio, sectStart, sectCount,
+                                    q, tracker_disk_get_original_make_request(tr_disk), tracker );
+#endif
                     if (SUCCESS == res)
                         do_lowlevel = false;
                 }
@@ -221,7 +240,7 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
         }
 
     }else {
-        log_err_format("CRITICAL! Cannot find tracker for disk [%s]", bio->bi_disk->disk_name);
+        log_err("CRITICAL! Cannot find tracker disk");
         bio_io_error(bio);
     }
 
@@ -311,8 +330,12 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
 
             sectStart = blk_dev_get_start_sect(target_dev);
             sectEnd = blk_dev_get_capacity(target_dev) + sectStart;
-
-            if (SUCCESS == tracker_disk_find(target_dev->bd_disk, &tr_disk)) {
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+            if (SUCCESS == tracker_disk_find(target_dev->bd_disk, &tr_disk))
+#else
+            if (SUCCESS == tracker_disk_find(target_dev->bd_disk->queue, &tr_disk))
+#endif
+            {
                 tracker_t* old_tracker = NULL;
 
                 if (SUCCESS == tracker_find_intersection(tr_disk, sectStart, sectEnd, &old_tracker)){

@@ -240,8 +240,11 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
             tracker->is_unfreezable = true;
             break;
         }
-
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
         result = tracker_disk_ref(tracker->target_dev->bd_disk, &tracker->tr_disk);
+#else
+        result = tracker_disk_ref(tracker->target_dev->bd_disk->queue, &tracker->tr_disk);
+#endif
 
 #ifdef VEEAMSNAP_BLK_FREEZE
         superblock = blk_thaw_bdev( tracker->original_dev_id, tracker->target_dev, superblock );

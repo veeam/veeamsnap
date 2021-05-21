@@ -25,15 +25,14 @@
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
-#if defined(blk_has_interposer)
-#ifndef HAVE_BLK_INTERPOSER
-#define HAVE_BLK_INTERPOSER
-#endif
-#else
-#ifndef VEEAMSNAP_DISK_SUBMIT_BIO
-#define VEEAMSNAP_DISK_SUBMIT_BIO
-#endif
-#endif
+# ifndef VEEAMSNAP_DISK_SUBMIT_BIO
+#  define VEEAMSNAP_DISK_SUBMIT_BIO
+# endif
+# if defined(blk_has_interposer)
+#  ifndef HAVE_BLK_INTERPOSER
+#   define HAVE_BLK_INTERPOSER
+#  endif
+# endif
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)

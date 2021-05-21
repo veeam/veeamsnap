@@ -2,7 +2,7 @@
 
 #pragma once
 #include "container_spinlocking.h"
-#if defined(HAVE_BLK_INTERPOSER) || defined(VEEAMSNAP_DISK_SUBMIT_BIO) || defined(VEEAMSNAP_MQ_REQUEST)
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO) || defined(VEEAMSNAP_MQ_REQUEST)
 #include <linux/blk-mq.h>
 #endif
 
@@ -13,15 +13,18 @@ typedef blk_qc_t (make_request_fn) (struct bio *bio);
 typedef struct _tracker_disk_s
 {
     content_sl_t content;
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+    struct gendisk *disk;
 #ifdef HAVE_BLK_INTERPOSER
     struct blk_interposer interposer;
-#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+#else
     struct block_device_operations fops;
     struct block_device_operations* original_fops;
+#endif
 #else
     make_request_fn* original_make_request_fn;
+    struct request_queue *queue;
 #endif
-    struct gendisk *disk;
     atomic_t atomic_ref_count;
 
 }tracker_disk_t;
@@ -29,12 +32,17 @@ typedef struct _tracker_disk_s
 int tracker_disk_init(void );
 int tracker_disk_done(void );
 
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk);
 int tracker_disk_find(struct gendisk *disk, tracker_disk_t** ptracker_disk);
+#else
+int tracker_disk_ref(struct request_queue *q, tracker_disk_t** ptracker_disk);
+int tracker_disk_find(struct request_queue *q, tracker_disk_t** ptracker_disk);
+#endif
 
 void tracker_disk_unref(tracker_disk_t* ptracker_disk);
 
-#if defined(HAVE_BLK_INTERPOSER) || defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 
 static inline void blk_disk_freeze(struct gendisk *disk)
 {
@@ -49,7 +57,7 @@ static inline void blk_disk_unfreeze(struct gendisk *disk)
 
 #endif
 
-#ifdef VEEAMSNAP_MQ_REQUEST
+#if defined(VEEAMSNAP_MQ_REQUEST)
 
 static inline make_request_fn * tracker_disk_get_original_make_request(tracker_disk_t* tr_disk)
 {
@@ -57,7 +65,7 @@ static inline make_request_fn * tracker_disk_get_original_make_request(tracker_d
         return tr_disk->original_make_request_fn;
 
     /* prevents distortion of q_usage_counter counter in blk_queue_exit() */
-    percpu_ref_get(&tr_disk->disk->queue->q_usage_counter);
+    percpu_ref_get(&tr_disk->queue->q_usage_counter);
     return blk_mq_make_request;
 }
 

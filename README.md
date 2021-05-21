@@ -9,6 +9,7 @@ Type "sudo make" command to compile the module.
 Use "sudo make install" and "make uninstall" commands to install and uninstall the module.
 
 ## Create DKMS package for deb
+"sudo apt install debhelper"
 "make VERSION_MAJOR=5 VERSION_MINOR=0 VERSION_REV=0 VERSION_BUILD=4318 dkms-deb-pkg"
 Variables allow you to set any package version number. The package version must match the version of the veeam package you are using.
 
