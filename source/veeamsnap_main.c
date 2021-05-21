@@ -398,7 +398,7 @@ int __init veeamsnap_init(void)
         if ((result = tracker_init( )) != SUCCESS)
             break;
 
-        if ((result = tracker_queue_init( )) != SUCCESS)
+        if ((result = tracker_disk_init( )) != SUCCESS)
             break;
 
         if ((result = snapshot_Init( )) != SUCCESS)
@@ -495,7 +495,7 @@ void __exit veeamsnap_exit(void)
 
         result = tracker_done( );
         if (SUCCESS == result){
-            result = tracker_queue_done( );
+            result = tracker_disk_done( );
 
 #ifdef PERSISTENT_CBT
             cbt_persistent_done();

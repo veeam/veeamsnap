@@ -137,3 +137,33 @@ struct bio_set* blk_bioset_create(unsigned int front_pad)
 #endif
 }
 #endif
+
+#if defined(HAVE_BLK_INTERPOSER)
+/* do nothing */
+#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+
+#if defined(CONFIG_X86)
+// page protection hack
+#ifndef X86_CR0_WP
+#define X86_CR0_WP (1UL << 16)
+#endif
+
+static inline void wr_cr0(unsigned long cr0) {
+    __asm__ __volatile__ ("mov %0, %%cr0": "+r"(cr0));
+}
+
+static inline unsigned long disable_page_protection(void ) {
+    unsigned long cr0;
+    cr0 = read_cr0();
+    wr_cr0(cr0 & ~X86_CR0_WP);
+    return cr0;
+}
+
+static inline void reenable_page_protection(unsigned long cr0) {
+    wr_cr0(cr0);
+}
+#else
+#pragma message("Page protection unimplemented for current architecture")
+#endif
+
+#endif

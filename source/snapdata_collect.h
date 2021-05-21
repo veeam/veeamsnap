@@ -14,7 +14,7 @@ typedef struct snapdata_collector_s
     dev_t dev_id;
     struct block_device* device;
 
-    tracker_queue_t* tracker_queue;
+    tracker_disk_t* tr_disk;
 
     void* magic_buff;
     size_t magic_size;
@@ -27,12 +27,7 @@ typedef struct snapdata_collector_s
 #endif
     stream_size_t collected_size;
     stream_size_t already_set_size;
-    /*
-    sector_t collected_begin;
-    sector_t collected_end;
-    sector_t already_set_begin;
-    sector_t already_set_end;
-    */
+
     int fail_code;
 
     struct mutex locker;
@@ -47,10 +42,11 @@ int snapdata_collect_LocationGet( dev_t dev_id, rangelist_t* rangelist, size_t* 
 int snapdata_collect_LocationComplete( dev_t dev_id );
 
 int snapdata_collect_Get( dev_t dev_id, snapdata_collector_t** p_collector );
-#ifdef HAVE_BLK_INTERPOSER
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 int snapdata_collect_Find(struct bio *bio, snapdata_collector_t** p_collector);
 #else
-int snapdata_collect_Find( struct request_queue *q, struct bio *bio, snapdata_collector_t** p_collector );
+int snapdata_collect_Find(struct bio *bio, struct request_queue *queue, snapdata_collector_t** p_collector);
 #endif
+
 void snapdata_collect_Process( snapdata_collector_t* collector, struct bio *bio );
 

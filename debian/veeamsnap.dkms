@@ -1,0 +1,14 @@
+PACKAGE_VERSION="#MODULE_VERSION#"
+PACKAGE_NAME="veeamsnap"
+
+BUILT_MODULE_NAME[0]="veeamsnap"
+DEST_MODULE_LOCATION[0]="/kernel/drivers/block/"
+
+PRE_BUILD="genconfig.sh ${kernelver}"
+MAKE[0]="make -C ${kernel_source_dir} M=${dkms_tree}/${PACKAGE_NAME}/${PACKAGE_VERSION}/build modules"
+CLEAN="make -C ${kernel_source_dir} M=${dkms_tree}/${PACKAGE_NAME}/${PACKAGE_VERSION}/build clean"
+STRIP[0]="no"
+
+AUTOINSTALL="yes"
+NO_WEAK_MODULES="yes"
+REMAKE_INITRD="no"

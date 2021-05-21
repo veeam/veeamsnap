@@ -4,6 +4,7 @@
 
 #include "shared_resource.h"
 #include "snapstore_device.h"
+#include "tracker_queue.h"
 
 typedef struct defer_io_s
 {
@@ -47,7 +48,11 @@ static inline void defer_io_put_resource( defer_io_t* defer_io )
 }
 #ifdef HAVE_BLK_INTERPOSER
 int defer_io_redirect_bio(defer_io_t* defer_io, struct bio *bio, sector_t sectStart, sector_t sectCount, void* tracker);
+#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+int defer_io_redirect_bio( defer_io_t* defer_io, struct bio *bio, sector_t sectStart, sector_t sectCount,
+        make_request_fn* target_make_request_fn, void* tracker );
 #else
-int defer_io_redirect_bio( defer_io_t* defer_io, struct bio *bio, sector_t sectStart, sector_t sectCount, struct request_queue *q, make_request_fn* TargetMakeRequest_fn, void* tracker );
+int defer_io_redirect_bio( defer_io_t* defer_io, struct bio *bio, sector_t sectStart, sector_t sectCount,
+        struct request_queue *q, make_request_fn* target_make_request_fn, void* tracker );
 #endif
 void defer_io_print_state( defer_io_t* defer_io );

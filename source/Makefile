@@ -4,6 +4,12 @@
 KERNEL_RELEASE := $(shell uname -r)
 KERNEL_MODULE_NAME := veeamsnap
 
+VERSION_MAJOR?=5
+VERSION_MINOR?=0
+VERSION_REV?=0
+VERSION_BUILD?=0
+VERSION=${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_REV}.${VERSION_BUILD}
+
 KERNEL_MODULE_OBJECT_FILE_LIST := \
 	log.o \
 	mem_alloc.o \
@@ -53,42 +59,56 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 obj-m := $(KERNEL_MODULE_NAME).o
 $(KERNEL_MODULE_NAME)-y += $(KERNEL_MODULE_OBJECT_FILE_LIST)
 ccflags-y := -O2 -Wno-multichar
-SHELL:=/bin/bash 
+SHELL:=/bin/bash
 ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; val="DISTRIB_NAME.$$ID"; echo "-D"$${val//[.-]/_} | awk '{print toupper($$0)}' ; fi )
 ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; awk '{ n=split($$0,v,"."); for (i=0; ++i<=n;) print "-DDISTRIB_VERSION_"i"="v[i] }' <<< $$VERSION_ID ; fi )
 
 # try to find kernel headers files
 include_linux = "."
-ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/build/include/linux" && echo -n yes),yes) 
+ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/build/include/linux" && echo -n yes),yes)
 include_linux = /lib/modules/$(KERNEL_RELEASE)/build/include/linux
 endif
-ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/source/include/linux" && echo -n yes),yes) 
+ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/source/include/linux" && echo -n yes),yes)
 include_linux = /lib/modules/$(KERNEL_RELEASE)/source/include/linux
 endif
 
-# try to find patch for lookup_bdev 
-# https://patchwork.kernel.org/patch/7748091/ 
-ifeq ($(shell test -e $(include_linux)/fs.h && echo -n yes),yes) 
+# try to find patch for lookup_bdev
+# https://patchwork.kernel.org/patch/7748091/
+ifeq ($(shell test -e $(include_linux)/fs.h && echo -n yes),yes)
 ccflags-y += $(shell if [[ 0 -ne $(shell cat $(include_linux)/fs.h | grep 'lookup_bdev' | grep -c 'mask' ) ]]; then echo "-DLOOKUP_BDEV_MASK"; fi )
-endif 
+endif
 
-all:
+# try to find exported functions in rhel 8 kernel
+system_map = "/lib/modules/$(KERNEL_RELEASE)/System.map"
+ifeq ($(shell test -e $(system_map) && echo -n yes),yes)
+ccflags-y += $(shell cat $(system_map) | grep '__ksymtab_blk_mq_make_request' >>/dev/null && echo "-DVEEAMSNAP_MQ_REQUEST")
+ccflags-y += $(shell cat $(system_map) | grep '__ksymtab_blk_alloc_queue_rh' >>/dev/null && echo "-DVEEAMSNAP_ALLOC_QUEUE_RH")
+endif
+
+default:
+	@echo Configuring...
+	chmod +x ./genconfig.sh && ./genconfig.sh "$(KERNEL_RELEASE)"
 	@echo Making all...
 	@echo ccflags-y= $(ccflags-y)
-	make -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules
+	make -j$(shell nproc) -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules
 	@echo Completed.
 
 clean:
 	@echo Cleaning ...
 	make -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) clean
+	@rm -f ./config.h
 	@echo Completed.
 
-install:
+#install: default
+#	$(MAKE) -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules_install
+install: default
 	@echo Installing veeamsnap kernel module
 	mkdir -p /lib/modules/$(KERNEL_RELEASE)/kernel/drivers/veeam
 	cp $(KERNEL_MODULE_NAME).ko /lib/modules/$(KERNEL_RELEASE)/kernel/drivers/veeam
 	depmod
 	@echo Completed.
+uninstall:
+	$(RM) /lib/modules/$(KERNEL_RELEASE)/kernel/drivers/veeam/veeamsnap.ko
 
 load:
 	@echo Loading $(KERNEL_MODULE_NAME) kernel module from current folder
@@ -98,3 +118,19 @@ unload:
 	@echo Unloading $(KERNEL_MODULE_NAME) kernel module
 	@echo $(shell rmmod $(KERNEL_MODULE_NAME); rm -f /dev/$(KERNEL_MODULE_NAME))
 	$(shell rmmod $(KERNEL_MODULE_NAME))
+
+PWD=$(shell pwd)
+BUILDROOT?=../build
+dkms-deb-pkg:
+	mkdir -p $(BUILDROOT)/src
+	@cp -r ./* $(BUILDROOT)/src
+	@cp -r ../debian $(BUILDROOT)/
+	chmod 0666 $(BUILDROOT)/debian/control
+	chmod 0766 $(BUILDROOT)/debian/rules
+	chmod 0766 $(BUILDROOT)/src/genconfig.sh
+	sed -i '0,/FILEVER_MAJOR [0-9]\+/s/FILEVER_MAJOR [0-9]\+/FILEVER_MAJOR $(VERSION_MAJOR)/g' $(BUILDROOT)/src/version.h
+	sed -i '0,/FILEVER_MINOR [0-9]\+/s/FILEVER_MINOR [0-9]\+/FILEVER_MINOR $(VERSION_MINOR)/g' $(BUILDROOT)/src/version.h
+	sed -i '0,/FILEVER_REVISION [0-9]\+/s/FILEVER_REVISION [0-9]\+/FILEVER_REVISION $(VERSION_REV)/g' $(BUILDROOT)/src/version.h
+	sed -i '0,/FILEVER_BUILD [0-9]\+/s/FILEVER_BUILD [0-9]\+/FILEVER_BUILD $(VERSION_BUILD)/g' $(BUILDROOT)/src/version.h
+	find $(BUILDROOT) -type f -exec sed -i 's/#PACKAGE_VERSION#/$(VERSION)/g' {} +
+	cd $(BUILDROOT) && dpkg-buildpackage -us -uc -b

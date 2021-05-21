@@ -22,20 +22,23 @@ bool tracking_submit_bio(struct bio *bio)
 {
     bool was_catched = false;
 
-    tracker_queue_t* tracker_queue = NULL;
+    tracker_disk_t* tr_disk = NULL;
     snapdata_collector_t* collector = NULL;
     tracker_t* tracker = NULL;
 
     bio_get(bio);
-    tracker_queue = container_of(bio->bi_disk->interposer, tracker_queue_t, interposer);
+    tr_disk = container_of(bio->bi_disk->interposer, tracker_disk_t, interposer);
 
-    if (SUCCESS == tracker_find_by_queue_and_sector(tracker_queue, bio_bi_sector(bio), &tracker)) {
+    if (SUCCESS == tracker_find_by_queue_and_sector(tr_disk, bio_bi_sector(bio), &tracker)) {
         sector_t sectStart = (bio_bi_sector(bio) - blk_dev_get_start_sect( tracker->target_dev ));
         sector_t sectCount = sector_from_size( bio_bi_size(bio) );
 
-        //find tracker by queue
         if (op_is_write(bio_op(bio))) {// only write request processed
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
             if (SUCCESS == snapdata_collect_Find(bio, &collector))
+#else
+            if (SUCCESS == snapdata_collect_Find(bio, tr_disk->queue, &collector))
+#endif
                 snapdata_collect_Process(collector, bio);
         }
 
@@ -78,44 +81,88 @@ bool tracking_submit_bio(struct bio *bio)
 #else //HAVE_BLK_INTERPOSER
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
+static inline void tracking_original_make_request(tracker_disk_t* tr_disk, struct request_queue *q, struct bio *bio)
+{
+    make_request_fn* fn = tracker_disk_get_original_make_request(tr_disk);
+
+    if (!fn) {
+        log_err("Invalid original bio processing function");
+        bio_io_error(bio);
+    }
+
+    fn(q, bio);
+}
+#else
+static inline blk_qc_t tracking_original_make_request(tracker_disk_t* tr_disk, struct bio *bio)
+{
+    make_request_fn* fn = tracker_disk_get_original_make_request(tr_disk);
+
+    if (!fn) {
+        log_err("Invalid original bio processing function");
+        bio_io_error(bio);
+        return BLK_QC_T_NONE;
+    }
+#ifdef VEEAMSNAP_DISK_SUBMIT_BIO
+    return fn(bio);
+#else
+    return fn(tr_disk->queue, bio);
+#endif
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
 
 #ifdef HAVE_MAKE_REQUEST_INT
 int tracking_make_request(struct request_queue *q, struct bio *bio)
+{
 #else
 void tracking_make_request(struct request_queue *q, struct bio *bio)
+{
 #endif
 
 #else
-blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
-#endif
+
+#ifdef VEEAMSNAP_DISK_SUBMIT_BIO
+blk_qc_t tracking_make_request(struct bio *bio )
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)
-    blk_qc_t result = 0;
+#else
+blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
+{
 #endif
+    blk_qc_t result = BLK_QC_T_NONE;
+#endif
+
     sector_t bi_sector;
     unsigned int bi_size;
-    tracker_queue_t* tracker_queue = NULL;
+    tracker_disk_t* tr_disk = NULL;
     snapdata_collector_t* collector = NULL;
     tracker_t* tracker = NULL;
 
     bio_get(bio);
 
-    if (SUCCESS == tracker_queue_find(q, &tracker_queue)){
-        //find tracker by queue
-
-#ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+    if (SUCCESS == tracker_disk_find(bio->bi_disk, &tr_disk))
+#else
+    if (SUCCESS == tracker_disk_find(q, &tr_disk))
+#endif
+    {
+#ifndef REQ_OP_BITS
         if ( bio->bi_rw & WRITE ){// only write request processed
 #else
         if ( op_is_write( bio_op( bio ) ) ){// only write request processed
 #endif
-            if (SUCCESS == snapdata_collect_Find( q, bio, &collector ))
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+            if (SUCCESS == snapdata_collect_Find( bio, &collector ))
+#else
+            if (SUCCESS == snapdata_collect_Find( bio, tr_disk->queue, &collector ))
+#endif
                 snapdata_collect_Process( collector, bio );
         }
 
         bi_sector = bio_bi_sector( bio );
         bi_size = bio_bi_size(bio);
 
-        if (SUCCESS == tracker_find_by_queue_and_sector( tracker_queue, bi_sector, &tracker )){
+        if (SUCCESS == tracker_find_by_queue_and_sector( tr_disk, bi_sector, &tracker )){
             sector_t sectStart = (bi_sector - blk_dev_get_start_sect( tracker->target_dev ));
             sector_t sectCount = sector_from_size( bi_size );
 
@@ -134,7 +181,13 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 
                 if (atomic_read( &tracker->is_captured ))
                 {// do copy-on-write
-                    int res = defer_io_redirect_bio( tracker->defer_io, bio, sectStart, sectCount, q, tracker_queue_get_original_make_request(tracker_queue), tracker );
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+                    int res = defer_io_redirect_bio( tracker->defer_io, bio, sectStart, sectCount,
+                                    tracker_disk_get_original_make_request(tr_disk), tracker );
+#else
+                    int res = defer_io_redirect_bio( tracker->defer_io, bio, sectStart, sectCount,
+                                    q, tracker_disk_get_original_make_request(tr_disk), tracker );
+#endif
                     if (SUCCESS == res)
                         do_lowlevel = false;
                 }
@@ -151,12 +204,12 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
                             tracker_cbt_bitmap_set( tracker, sectStart, sectCount );
                         //tracker_CbtBitmapUnlock( tracker );
                     }
-                    //call low level block device
-                    {
-                        make_request_fn* fn = tracker_queue_get_original_make_request(tracker_queue);
-                        fn(q, bio);
-                    }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
+                    tracking_original_make_request(tr_disk, q, bio);
+#else
+                    result = tracking_original_make_request(tr_disk, bio);
+#endif
                     if (cbt_locked)
                         tracker_cbt_bitmap_unlock( tracker );
                 }
@@ -170,21 +223,26 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
                     if (cbt_locked)
                         tracker_cbt_bitmap_set( tracker, sectStart, sectCount );
                 }
-                {
-                    make_request_fn* fn = tracker_queue_get_original_make_request(tracker_queue);
-                    fn(q, bio);
-                }
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
+                tracking_original_make_request(tr_disk, q, bio);
+#else
+                result = tracking_original_make_request(tr_disk, bio);
+#endif
                 if (cbt_locked)
                     tracker_cbt_bitmap_unlock( tracker );
             }
         }else{
-            //call low level block device
-            make_request_fn* fn = tracker_queue_get_original_make_request(tracker_queue);
-            fn(q, bio);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
+            tracking_original_make_request(tr_disk, q, bio);
+#else
+            result = tracking_original_make_request(tr_disk, bio);
+#endif
         }
 
-    }else
-        log_err("CRITICAL! Cannot find tracker queue");
+    }else {
+        log_err("CRITICAL! Cannot find tracker disk");
+        bio_io_error(bio);
+    }
 
     bio_put(bio);
 
@@ -260,7 +318,7 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
     else if (-ENODATA == result)
     {
         struct block_device* target_dev = NULL;
-        tracker_queue_t* tracker_queue = NULL;
+        tracker_disk_t* tr_disk = NULL;
 
         do {//check space already under tracking
             sector_t sectStart;
@@ -272,15 +330,15 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
 
             sectStart = blk_dev_get_start_sect(target_dev);
             sectEnd = blk_dev_get_capacity(target_dev) + sectStart;
-
-#ifdef HAVE_BLK_INTERPOSER
-            if (SUCCESS == tracker_queue_find(target_dev->bd_disk, &tracker_queue)) {
-#else //HAVE_BLK_INTERPOSER
-            if (SUCCESS == tracker_queue_find(target_dev->bd_disk->queue, &tracker_queue)) {// can be only one
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+            if (SUCCESS == tracker_disk_find(target_dev->bd_disk, &tr_disk))
+#else
+            if (SUCCESS == tracker_disk_find(target_dev->bd_disk->queue, &tr_disk))
 #endif
+            {
                 tracker_t* old_tracker = NULL;
 
-                if (SUCCESS == tracker_find_intersection(tracker_queue, sectStart, sectEnd, &old_tracker)){
+                if (SUCCESS == tracker_find_intersection(tr_disk, sectStart, sectEnd, &old_tracker)){
                     log_warn_format("Removing the device [%d:%d] from tracking",
                         MAJOR(old_tracker->original_dev_id), MINOR(old_tracker->original_dev_id));
 

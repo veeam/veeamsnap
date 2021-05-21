@@ -101,14 +101,13 @@ int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicU
 #endif
 
         if (res == SUCCESS){
-#ifdef HAVE_BLK_INTERPOSER
-            res = tracker_queue_ref(collector->device->bd_disk, &collector->tracker_queue);
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+            res = tracker_disk_ref(collector->device->bd_disk, &collector->tr_disk);
 #else
-            res = tracker_queue_ref(bdev_get_queue(collector->device), &collector->tracker_queue);
+            res = tracker_disk_ref(collector->device->bd_disk->queue, &collector->tr_disk);
 #endif
-
             if (res != SUCCESS)
-                log_err("Unable to initialize snapstore collector: failed to reference tracker queue");
+                log_err("Unable to initialize snapstore collector: failed to reference tracker disk");
 
 #ifdef VEEAMSNAP_BLK_FREEZE
             sb = blk_thaw_bdev(collector->dev_id, collector->device, sb);
@@ -126,9 +125,9 @@ int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicU
 
 void _collector_stop( snapdata_collector_t* collector )
 {
-    if (collector->tracker_queue != NULL){
-        tracker_queue_unref( collector->tracker_queue );
-        collector->tracker_queue = NULL;
+    if (collector->tr_disk != NULL){
+        tracker_disk_unref( collector->tr_disk );
+        collector->tr_disk = NULL;
     }
 }
 
@@ -310,23 +309,23 @@ int snapdata_collect_Get( dev_t dev_id, snapdata_collector_t** p_collector )
     CONTAINER_SL_FOREACH_END( SnapdataCollectors );
     return res;
 }
-
-#ifdef HAVE_BLK_INTERPOSER
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 int snapdata_collect_Find(struct bio *bio, snapdata_collector_t** p_collector)
 #else
-int snapdata_collect_Find( struct request_queue *q, struct bio *bio, snapdata_collector_t** p_collector )
+int snapdata_collect_Find(struct bio *bio, struct request_queue *queue, snapdata_collector_t** p_collector)
 #endif
 {
     int res = -ENODATA;
     content_sl_t* content = NULL;
-    snapdata_collector_t* collector = NULL;
+
     CONTAINER_SL_FOREACH_BEGIN( SnapdataCollectors, content )
     {
-        collector = (snapdata_collector_t*)content;
-#ifdef HAVE_BLK_INTERPOSER
-        if ( (collector->device->bd_disk == bio->bi_disk)
+        snapdata_collector_t* collector = (snapdata_collector_t*)content;
+        if (
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+            (collector->device->bd_disk == bio->bi_disk)
 #else
-        if ( (q == bdev_get_queue( collector->device ))
+            (collector->device->bd_disk->queue == queue)
 #endif
             && (bio_bi_sector( bio ) >= blk_dev_get_start_sect( collector->device ))
             && ( bio_bi_sector( bio ) < (blk_dev_get_start_sect( collector->device ) + blk_dev_get_capacity( collector->device )))

@@ -33,7 +33,7 @@ int tracker_done(void )
     return result;
 }
 
-int tracker_find_by_queue_and_sector(tracker_queue_t* queue, sector_t sector, tracker_t** ptracker )
+int tracker_find_by_queue_and_sector(tracker_disk_t* queue, sector_t sector, tracker_t** ptracker )
 {
     int result = -ENODATA;
 
@@ -42,7 +42,7 @@ int tracker_find_by_queue_and_sector(tracker_queue_t* queue, sector_t sector, tr
     CONTAINER_SL_FOREACH_BEGIN( trackers_container, content )
     {
         tracker = (tracker_t*)content;
-        if ((queue == tracker->tracker_queue) &&
+        if ((queue == tracker->tr_disk) &&
             (sector >= blk_dev_get_start_sect( tracker->target_dev )) &&
             (sector < (blk_dev_get_start_sect( tracker->target_dev ) + blk_dev_get_capacity( tracker->target_dev )))
         ){
@@ -56,7 +56,7 @@ int tracker_find_by_queue_and_sector(tracker_queue_t* queue, sector_t sector, tr
     return result;
 }
 
-int tracker_find_intersection(tracker_queue_t* queue, sector_t b1, sector_t e1, tracker_t** ptracker)
+int tracker_find_intersection(tracker_disk_t* queue, sector_t b1, sector_t e1, tracker_t** ptracker)
 {
     int result = -ENODATA;
 
@@ -66,7 +66,7 @@ int tracker_find_intersection(tracker_queue_t* queue, sector_t b1, sector_t e1, 
     {
         tracker = (tracker_t*)content;
 
-        if (queue == tracker->tracker_queue)
+        if (queue == tracker->tr_disk)
         {
             bool have_intersection = false;
             sector_t b2 = blk_dev_get_start_sect(tracker->target_dev);
@@ -240,11 +240,10 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
             tracker->is_unfreezable = true;
             break;
         }
-
-#ifdef HAVE_BLK_INTERPOSER
-        result = tracker_queue_ref(tracker->target_dev->bd_disk, &tracker->tracker_queue);
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+        result = tracker_disk_ref(tracker->target_dev->bd_disk, &tracker->tr_disk);
 #else
-        result = tracker_queue_ref( bdev_get_queue( tracker->target_dev ), &tracker->tracker_queue );
+        result = tracker_disk_ref(tracker->target_dev->bd_disk->queue, &tracker->tr_disk);
 #endif
 
 #ifdef VEEAMSNAP_BLK_FREEZE
@@ -292,9 +291,9 @@ int _tracker_remove( tracker_t* tracker )
 #endif
         }
 
-        if (NULL != tracker->tracker_queue){
-            tracker_queue_unref( tracker->tracker_queue );
-            tracker->tracker_queue = NULL;
+        if (NULL != tracker->tr_disk){
+            tracker_disk_unref( tracker->tr_disk );
+            tracker->tr_disk = NULL;
         }
         if (tracker->is_unfreezable)
             up_write(&tracker->unfreezable_lock);
