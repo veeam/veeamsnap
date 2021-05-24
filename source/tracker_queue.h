@@ -66,14 +66,15 @@ static inline make_request_fn * tracker_disk_get_original_make_request(tracker_d
 
     /* prevents distortion of q_usage_counter counter in blk_queue_exit() */
     percpu_ref_get(&tr_disk->queue->q_usage_counter);
+#ifdef(BLK_MQ_MAKE_REQUEST_EXPORTED)
     return blk_mq_make_request;
+#else
+    return (blk_qc_t (*)(struct request_queue *, struct bio *))
+        (BLK_MQ_MAKE_REQUEST_ADDR + (long long)(((void *)printk) - (void *)PRINTK_ADDR));
+#endif
 }
 
 #elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-
-#if BLK_MQ_SUBMIT_BIO_ADDR == 0x0
-#error "function blk_mq_submit_bio is not found"
-#endif
 
 static inline make_request_fn * tracker_disk_get_original_make_request(tracker_disk_t* tr_disk)
 {
@@ -82,7 +83,8 @@ static inline make_request_fn * tracker_disk_get_original_make_request(tracker_d
 
     /* prevents distortion of q_usage_counter counter in blk_queue_exit() */
     percpu_ref_get(&tr_disk->disk->queue->q_usage_counter);
-    return (blk_qc_t (*)(struct bio *)) (BLK_MQ_SUBMIT_BIO_ADDR + (long long)(((void *)printk) - (void *)PRINTK_ADDR));
+    return (blk_qc_t (*)(struct bio *))
+        (BLK_MQ_SUBMIT_BIO_ADDR + (long long)(((void *)printk) - (void *)PRINTK_ADDR));
 }
 
 #else
