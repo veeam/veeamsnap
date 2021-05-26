@@ -164,7 +164,13 @@ int _blk_dev_redirect_part_fast( blk_redirect_bio_endio_t* rq_endio, int directi
 #ifdef BIO_MAX_SECTORS
         max_sect = BIO_MAX_SECTORS;
 #else
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION( 5, 12, 0 )
+        max_sect = BIO_MAX_VECS << (PAGE_SHIFT - SECTOR_SHIFT);
+#else
         max_sect = BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT);
+#endif
+
 #endif
         max_sect = min( max_sect, q->limits.max_sectors );
     }

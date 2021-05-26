@@ -124,8 +124,15 @@ int _dev_direct_submit_pages(
 #ifdef BIO_MAX_SECTORS
         size_sector = min_t( sector_t, size_sector, BIO_MAX_SECTORS );
 #else
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION( 5, 12, 0 )
+        size_sector = min_t( sector_t, size_sector, (BIO_MAX_VECS << (PAGE_SHIFT - SECTOR_SHIFT)) );
+#else
         size_sector = min_t( sector_t, size_sector, (BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT)) );
 #endif
+
+#endif
+
 
     }
 

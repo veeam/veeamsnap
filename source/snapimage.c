@@ -645,7 +645,13 @@ blk_qc_t _snapimage_make_request(struct request_queue *q, struct bio *bio)
 #else
 blk_qc_t _snapimage_submit_bio(struct bio *bio)
 {
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION( 5, 12, 0 )
+    struct request_queue *q = bio->bi_bdev->bd_disk->queue;
+#else
     struct request_queue *q = bio->bi_disk->queue;
+#endif
+
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION( 4, 4, 0 )
