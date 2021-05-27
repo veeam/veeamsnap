@@ -58,7 +58,7 @@ fi
 SYMBOLS="blk_mq_make_request blk_alloc_queue_rh"
 for SYMBOL_NAME in ${SYMBOLS}
 do
-	SYMBOL_ADDR=$(grep " ${SYMBOL_NAME}$" "${SYSTEM_MAP_FILE}" | awk '{print $1}')
+	SYMBOL_ADDR=$(grep " __ksymtab_${SYMBOL_NAME}" "${SYSTEM_MAP_FILE}" | awk '{print $1}')
 	if [ -z "${SYMBOL_ADDR}" ]
 	then
 		echo "Exported function \"${SYMBOL_NAME}\" not found"
@@ -73,7 +73,7 @@ done
 SYMBOLS="printk blk_mq_submit_bio"
 for SYMBOL_NAME in ${SYMBOLS}
 do
-	SYMBOL_ADDR=$(grep " ${SYMBOL_NAME}$" "${SYSTEM_MAP_FILE}" | awk '{print $1}')
+	SYMBOL_ADDR=$(grep " ${SYMBOL_NAME}" "${SYSTEM_MAP_FILE}" | awk '{print $1}')
 	if [ -z "${SYMBOL_ADDR}" ]
 	then
 		echo "Function \"${SYMBOL_NAME}\" not found"
