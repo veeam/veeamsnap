@@ -141,7 +141,13 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
     bio_get(bio);
 
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+
+#ifdef VEEAMSNAP_BDEV_BIO
+    if (SUCCESS == tracker_disk_find(bio->bi_bdev->bd_disk, &tr_disk))
+#else
     if (SUCCESS == tracker_disk_find(bio->bi_disk, &tr_disk))
+#endif
+
 #else
     if (SUCCESS == tracker_disk_find(q, &tr_disk))
 #endif
@@ -161,8 +167,11 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 
         bi_sector = bio_bi_sector( bio );
         bi_size = bio_bi_size(bio);
-
+#ifdef VEEAMSNAP_BDEV_BIO
+        if (SUCCESS == tracker_find_by_bdev(bio->bi_bdev, &tracker)){
+#else
         if (SUCCESS == tracker_find_by_queue_and_sector( tr_disk, bi_sector, &tracker )){
+#endif
             sector_t sectStart = (bi_sector - blk_dev_get_start_sect( tracker->target_dev ));
             sector_t sectCount = sector_from_size( bi_size );
 

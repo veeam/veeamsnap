@@ -121,20 +121,20 @@ int _dev_direct_submit_pages(
         struct request_queue *q = bdev_get_queue( blkdev );
         size_sector = min_t( sector_t, size_sector, q->limits.max_sectors );
 
-#ifdef BIO_MAX_SECTORS
+#ifdef BIO_MAX_VECS
+        nr_iovecs = bio_max_segs(DIV_ROUND_UP(size_sector, PAGE_SIZE));
+#elif defined(BIO_MAX_SECTORS)
         size_sector = min_t( sector_t, size_sector, BIO_MAX_SECTORS );
+        nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
 #else
         size_sector = min_t( sector_t, size_sector, (BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT)) );
+        nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
 #endif
-
     }
-
-    nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
 
     while (NULL == (bb = _blk_dev_direct_bio_alloc( nr_iovecs ))){
         log_err_d( "Failed to allocate pages for direct IO. nr_iovecs=", nr_iovecs );
         log_err_sect( "ofs_sector=", ofs_sector );
-        log_err_sect( "size_sector=", size_sector );
 
         *processed_sectors = 0;
         return -ENOMEM;

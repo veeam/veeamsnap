@@ -321,6 +321,9 @@ int snapdata_collect_Find(struct bio *bio, struct request_queue *queue, snapdata
     CONTAINER_SL_FOREACH_BEGIN( SnapdataCollectors, content )
     {
         snapdata_collector_t* collector = (snapdata_collector_t*)content;
+#ifdef VEEAMSNAP_BDEV_BIO
+        if (collector->device == bio->bi_bdev)
+#else
         if (
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
             (collector->device->bd_disk == bio->bi_disk)
@@ -329,7 +332,9 @@ int snapdata_collect_Find(struct bio *bio, struct request_queue *queue, snapdata
 #endif
             && (bio_bi_sector( bio ) >= blk_dev_get_start_sect( collector->device ))
             && ( bio_bi_sector( bio ) < (blk_dev_get_start_sect( collector->device ) + blk_dev_get_capacity( collector->device )))
-        ){
+        )
+#endif
+        {
             *p_collector = collector;
             res = SUCCESS;    //don`t continue
         }
