@@ -141,7 +141,13 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
     bio_get(bio);
 
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION( 5, 12, 0 )
+    if (SUCCESS == tracker_disk_find(bio->bi_bdev->bd_disk, &tr_disk))
+#else
     if (SUCCESS == tracker_disk_find(bio->bi_disk, &tr_disk))
+#endif
+
 #else
     if (SUCCESS == tracker_disk_find(q, &tr_disk))
 #endif

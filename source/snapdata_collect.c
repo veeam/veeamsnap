@@ -323,7 +323,13 @@ int snapdata_collect_Find(struct bio *bio, struct request_queue *queue, snapdata
         snapdata_collector_t* collector = (snapdata_collector_t*)content;
         if (
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION( 5, 12, 0 )
+            (collector->device->bd_disk == bio->bi_bdev->bd_disk)
+#else  
             (collector->device->bd_disk == bio->bi_disk)
+#endif
+
 #else
             (collector->device->bd_disk->queue == queue)
 #endif
