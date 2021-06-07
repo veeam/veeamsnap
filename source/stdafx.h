@@ -41,6 +41,12 @@
 #endif
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,12,0)
+# ifndef VEEAMSNAP_BDEV_BIO
+#  define VEEAMSNAP_BDEV_BIO
+# endif
+#endif
+
 #include <linux/fs.h>
 #include <linux/types.h>
 #include <linux/genhd.h> // For basic block driver framework

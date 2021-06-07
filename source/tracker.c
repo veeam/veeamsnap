@@ -33,6 +33,26 @@ int tracker_done(void )
     return result;
 }
 
+#ifdef VEEAMSNAP_BDEV_BIO
+int tracker_find_by_bdev(struct block_device *bdev, tracker_t** ptracker)
+{
+    int result = -ENODATA;
+    content_sl_t *content = NULL;
+
+    CONTAINER_SL_FOREACH_BEGIN(trackers_container, content) {
+        tracker_t* tracker = (tracker_t*)content;
+
+        if (bdev == tracker->target_dev) {
+            *ptracker = tracker;
+            result = SUCCESS;
+            break;
+        }
+    }
+    CONTAINER_SL_FOREACH_END(trackers_container);
+
+    return result;
+}
+#else
 int tracker_find_by_queue_and_sector(tracker_disk_t* queue, sector_t sector, tracker_t** ptracker )
 {
     int result = -ENODATA;
@@ -55,6 +75,7 @@ int tracker_find_by_queue_and_sector(tracker_disk_t* queue, sector_t sector, tra
 
     return result;
 }
+#endif
 
 int tracker_find_intersection(tracker_disk_t* queue, sector_t b1, sector_t e1, tracker_t** ptracker)
 {

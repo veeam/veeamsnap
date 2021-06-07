@@ -156,26 +156,23 @@ int _blk_dev_redirect_part_fast( blk_redirect_bio_endio_t* rq_endio, int directi
     sector_t sect_ofs = 0;
     sector_t processed_sectors = 0;
     int nr_iovecs;
-    unsigned int max_sect;
+
     blk_redirect_bio_endio_list_t* bio_endio_rec;
 
     {
         struct request_queue *q = bdev_get_queue( blk_dev );
-#ifdef BIO_MAX_SECTORS
-        max_sect = BIO_MAX_SECTORS;
-#else
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION( 5, 12, 0 )
-        max_sect = BIO_MAX_VECS << (PAGE_SHIFT - SECTOR_SHIFT);
+#ifdef BIO_MAX_VECS
+        nr_iovecs = bio_max_segs(DIV_ROUND_UP(q->limits.max_sectors, PAGE_SIZE));
+#elif defined(BIO_MAX_SECTORS)
+        unsigned int max_sect = min( BIO_MAX_SECTORS, q->limits.max_sectors );
+        nr_iovecs = max_sect >> (PAGE_SHIFT - SECTOR_SHIFT);
 #else
-        max_sect = BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT);
+        unsigned int max_sect = min(BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT),
+                                    q->limits.max_sectors );
+        nr_iovecs = max_sect >> (PAGE_SHIFT - SECTOR_SHIFT);
 #endif
-
-#endif
-        max_sect = min( max_sect, q->limits.max_sectors );
     }
-
-    nr_iovecs = max_sect >> (PAGE_SHIFT - SECTOR_SHIFT);
 
     bio_for_each_segment( bvec, rq_endio->bio, iter ){
         sector_t bvec_ofs;
