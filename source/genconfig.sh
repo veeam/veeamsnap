@@ -55,7 +55,7 @@ then
 fi
 
 # parses the system map and check exported symbols
-SYMBOLS="blk_mq_make_request blk_alloc_queue_rh"
+SYMBOLS="blk_mq_make_request blk_alloc_queue_rh submit_bio_noacct"
 for SYMBOL_NAME in ${SYMBOLS}
 do
 	SYMBOL_ADDR=$(grep " __ksymtab_${SYMBOL_NAME}$" "${SYSTEM_MAP_FILE}" | awk '{print $1}')
