@@ -441,13 +441,13 @@ int _snapimage_compat_ioctl( struct block_device *bdev, fmode_t mode, unsigned c
 }
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 blk_qc_t _snapimage_submit_bio(struct bio *bio);
 #endif
 
 static struct block_device_operations g_snapimage_ops = {
     .owner = THIS_MODULE,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
     .submit_bio = _snapimage_submit_bio,
 #endif
     .open = _snapimage_open,
@@ -837,7 +837,7 @@ int snapimage_create( dev_t original_dev )
         image->queue = blk_alloc_queue_rh(_snapimage_make_request, NUMA_NO_NODE);
 #elif LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0)
         image->queue = blk_alloc_queue(GFP_KERNEL);
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
+#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
         image->queue = blk_alloc_queue(NUMA_NO_NODE);
 #else // KERNEL_VERSION(5,7,X) and KERNEL_VERSION(5,8,X)
         image->queue = blk_alloc_queue(_snapimage_make_request, NUMA_NO_NODE);
@@ -855,7 +855,7 @@ int snapimage_create( dev_t original_dev )
         }
         image->queue->queuedata = image;
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0)) && !defined(BLK_ALLOC_QUEUE_RH_EXPORTED)
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0)) && !defined(BLK_ALLOC_QUEUE_RH_EXPORTED) && !defined(VEEAMSNAP_DISK_SUBMIT_BIO)
         blk_queue_make_request( image->queue, _snapimage_make_request );
 #endif
 

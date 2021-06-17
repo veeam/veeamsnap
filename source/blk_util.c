@@ -81,15 +81,9 @@ int _blk_dev_get_info( struct block_device* blk_dev, blk_dev_info_t* pdev_info )
         pdev_info->io_min = SECTOR_SIZE;
     }
 #else
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
     pdev_info->physical_block_size = blk_dev->bd_disk->queue->limits.physical_block_size;
     pdev_info->logical_block_size = blk_dev->bd_disk->queue->limits.logical_block_size;
     pdev_info->io_min = blk_dev->bd_disk->queue->limits.io_min;
-#else
-    pdev_info->physical_block_size = blk_dev->bd_queue->limits.physical_block_size;
-    pdev_info->logical_block_size = blk_dev->bd_queue->limits.logical_block_size;
-    pdev_info->io_min = blk_dev->bd_queue->limits.io_min;
-#endif
 #endif
 
     pdev_info->blk_size = blk_dev_get_block_size( blk_dev );
