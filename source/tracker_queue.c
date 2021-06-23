@@ -185,6 +185,8 @@ int tracker_disk_ref(struct request_queue *queue, tracker_disk_t** ptracker_disk
     atomic_set( &tr_disk->atomic_ref_count, 0 );
 
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+    log_tr("The disk's fops is being substituted.");
+
     /* copy fops from original disk except submit_bio */
     tr_disk->original_fops = (struct block_device_operations *)(disk->fops);
     memcpy(&tr_disk->fops, tr_disk->original_fops, sizeof(struct block_device_operations));
@@ -263,6 +265,7 @@ void tracker_disk_unref(tracker_disk_t* tr_disk)
 
         blk_disk_freeze(disk);
 
+        log_tr("The disk's fops is being restored.");
         /* lock cpu */
         preempt_disable();
         local_irq_disable();
