@@ -302,7 +302,9 @@ int __init veeamsnap_init(void)
     log_tr_s("cbtdata: ", g_cbtdata);
 #endif
     log_tr_x("fixflags: ", g_param_fixflags);
-
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+    log_tr("The substitution of the disk's fops is used.");
+#endif
     if (g_param_snapstore_block_size_pow > 23){
         g_param_snapstore_block_size_pow = 23;
         log_tr_d("Limited snapstore_block_size_pow: ", g_param_snapstore_block_size_pow);
