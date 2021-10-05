@@ -541,6 +541,10 @@ int _tracker_release_snapshot( tracker_t* tracker )
 #endif
     defer_io_t* defer_io = tracker->defer_io;
 
+    if (!tracker->defer_io) {
+        log_err_dev_t( "Tracker is already released for device ", tracker->original_dev_id);
+        return SUCCESS;
+    }
 
     if (tracker->is_unfreezable)
         down_write(&tracker->unfreezable_lock);
