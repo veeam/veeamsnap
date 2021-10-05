@@ -47,6 +47,13 @@
 # endif
 #endif
 
+/* Since kernel 5.14 we use blk_alloc_disk() instead of blk_alloc_queue() */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0)
+# ifndef VEEAMSNAP_BLK_ALLOC_DISK
+#  define VEEAMSNAP_BLK_ALLOC_DISK
+# endif
+#endif
+
 #include <linux/fs.h>
 #include <linux/types.h>
 #include <linux/genhd.h> // For basic block driver framework

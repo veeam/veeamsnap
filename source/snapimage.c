@@ -832,6 +832,17 @@ int snapimage_create( dev_t original_dev )
         mutex_init( &image->open_locker );
         image->open_bdev = NULL;
         image->open_cnt = 0;
+
+#ifdef VEEAMSNAP_BLK_ALLOC_DISK 
+        disk = blk_alloc_disk(NUMA_NO_NODE);
+        if (!disk){
+            log_err( "Failed to allocate disk for snapshot image device" );
+            res = -ENOMEM;
+            break;
+        }
+        image->disk = disk;
+        image->queue = disk->queue;
+#else
 #ifdef VEEAMSNAP_MQ_IO
 #ifdef BLK_ALLOC_QUEUE_RH_EXPORTED
         image->queue = blk_alloc_queue_rh(_snapimage_make_request, NUMA_NO_NODE);
@@ -848,6 +859,7 @@ int snapimage_create( dev_t original_dev )
         else
             image->queue = blk_init_queue(NULL, &image->queue_lock);
 #endif //VEEAMSNAP_MQ_IO
+#endif //VEEAMSNAP_BLK_ALLOC_DISK
         if (NULL == image->queue){
             log_err( "Unable to create snapshot image: failed to allocate block device queue" );
             res = -ENOMEM;
@@ -871,6 +883,7 @@ int snapimage_create( dev_t original_dev )
             blk_queue_physical_block_size( image->queue, physical_block_size );
             blk_queue_logical_block_size( image->queue, logical_block_size );
         }
+#ifndef VEEAMSNAP_BLK_ALLOC_DISK
         disk = alloc_disk( 1 );//only one partition on disk
         if (disk == NULL){
             log_err( "Failed to allocate disk for snapshot image device" );
@@ -878,6 +891,7 @@ int snapimage_create( dev_t original_dev )
             break;
         }
         image->disk = disk;
+#endif
 
         if (snprintf( disk->disk_name, DISK_NAME_LEN, "%s%d", VEEAM_SNAP_IMAGE, minor ) < 0){
             log_err_d( "Unable to set disk name for snapshot image device: invalid minor ", minor );
@@ -900,7 +914,9 @@ int snapimage_create( dev_t original_dev )
         disk->private_data = image;
 
         disk->fops = &g_snapimage_ops;
+#ifndef VEEAMSNAP_BLK_ALLOC_DISK
         disk->queue = image->queue;
+#endif
 
         set_capacity( disk, image->capacity );
         log_tr_format( "Snapshot image device capacity %lld bytes", sector_to_streamsize(image->capacity) );
@@ -986,6 +1002,15 @@ int _snapimage_destroy( snapimage_t* image )
     if (image->rq_processor != NULL)
         _snapimage_stop( image );
 
+#ifdef VEEAMSNAP_BLK_ALLOC_DISK
+    if (image->disk != NULL) {
+        struct gendisk* disk = image->disk;
+        image->disk = NULL;
+        image->queue = NULL;
+        disk->private_data = NULL;
+        blk_cleanup_disk(disk);
+    }
+#else
     if (image->queue) {
         log_tr( "Snapshot image queue cleanup" );
         blk_cleanup_queue( image->queue );
@@ -1001,6 +1026,7 @@ int _snapimage_destroy( snapimage_t* image )
         disk->private_data = NULL;
         put_disk( disk );
     }
+#endif
     queue_sl_done( &image->rq_proc_queue );
 
     bitmap_sync_clear(&g_snapimage_minors, MINOR(image->image_dev));
