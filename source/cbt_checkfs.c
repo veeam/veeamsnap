@@ -78,7 +78,13 @@ static int _check_unmount_status(struct block_device* blk_dev, uint32_t* p_check
 
 static int _check_is_mounted(struct block_device* blk_dev, bool* p_is_mounted)
 {
-    struct super_block* sb = get_super(blk_dev);
+    struct super_block* sb;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
+    sb = get_super(blk_dev);
+#else
+    sb = blk_dev->bd_super;
+#endif
     if (sb == NULL){
         *p_is_mounted = false;
         return SUCCESS;

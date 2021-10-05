@@ -14,7 +14,7 @@ typedef struct tracker_s
     dev_t original_dev_id;
 
     struct block_device* target_dev;
-    tracker_queue_t* tracker_queue;
+    tracker_disk_t* tr_disk;
 
     cbt_map_t* cbt_map;
 
@@ -31,12 +31,13 @@ typedef struct tracker_s
 int tracker_init( void );
 int tracker_done( void );
 
-#ifdef CONFIG_BLK_FILTER
-int tracker_find_by_queue(tracker_queue_t* queue, tracker_t** ptracker);
+#ifdef VEEAMSNAP_BDEV_BIO
+int tracker_find_by_bdev(struct block_device *bdev, tracker_t** ptracker);
 #else
-int tracker_find_by_queue_and_sector( tracker_queue_t* queue, sector_t sector, tracker_t** ptracker );
-int tracker_find_intersection(tracker_queue_t* queue, sector_t b1, sector_t e1, tracker_t** ptracker);
+int tracker_find_by_queue_and_sector(tracker_disk_t* queue, sector_t sector, tracker_t** ptracker);
 #endif
+int tracker_find_intersection(tracker_disk_t* queue, sector_t b1, sector_t e1, tracker_t** ptracker);
+
 int tracker_find_by_dev_id(dev_t dev_id, tracker_t** ptracker);
 //int tracker_find_by_sb(struct super_block* sb, tracker_t** ptracker);
 

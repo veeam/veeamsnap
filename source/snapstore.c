@@ -99,8 +99,8 @@ int snapstore_create( veeam_uuid_t* id, dev_t snapstore_dev_id, dev_t* dev_id_se
 
     snapstore->ctrl_pipe = NULL;
     snapstore->empty_limit = (sector_t)(64 * (1024 * 1024 / SECTOR_SIZE)); //by default value
-    snapstore->halffilled = false;
-    snapstore->overflowed = false;
+    atomic_set(&snapstore->halffilled, 0);
+    atomic_set(&snapstore->overflowed, 0);
 
     if (snapstore_dev_id == 0){
         log_tr( "Memory snapstore create" );
@@ -168,8 +168,8 @@ int snapstore_create_multidev(veeam_uuid_t* id, dev_t* dev_id_set, size_t dev_id
 
     snapstore->ctrl_pipe = NULL;
     snapstore->empty_limit = (sector_t)(64 * (1024 * 1024 / SECTOR_SIZE)); //by default value
-    snapstore->halffilled = false;
-    snapstore->overflowed = false;
+    atomic_set(&snapstore->halffilled, 0);
+    atomic_set(&snapstore->overflowed, 0);
 
     {
         snapstore_multidev_t* multidev = NULL;
@@ -317,7 +317,7 @@ int zerosectors_add_ranges( rangevector_t* zero_sectors, page_array_t* ranges, s
 
         for (inx = 0; inx < ranges_cnt; ++inx){
             int res = SUCCESS;
-            
+
             range_t range;
             struct ioctl_range_s* ioctl_range = (struct ioctl_range_s*)page_get_element( ranges, inx, sizeof( struct ioctl_range_s ) );
 
@@ -400,7 +400,8 @@ int snapstore_add_file( veeam_uuid_t* id, page_array_t* ranges, size_t ranges_cn
                         break;
                     }
 
-                    snapstore->halffilled = false;
+                    smp_mb();
+                    atomic_set(&snapstore->halffilled, 0);
 
                     current_blk_size = 0;
                     rangelist_init( &blk_rangelist );
@@ -415,7 +416,7 @@ int snapstore_add_file( veeam_uuid_t* id, page_array_t* ranges, size_t ranges_cn
     }
     if ((res == SUCCESS) && (current_blk_size != 0))
         log_warn( "Snapstore portion was not ordered by Copy-on-Write block size" );
-    
+
 #ifdef SNAPDATA_ZEROED
     if ((res == SUCCESS) && (snapstore->file != NULL)){
         snapstore_device_t* snapstore_device = snapstore_device_find_by_dev_id( snapstore->file->blk_dev_id );
@@ -501,7 +502,8 @@ int snapstore_add_multidev(veeam_uuid_t* id, dev_t dev_id, page_array_t* ranges,
                         break;
                     }
 
-                    snapstore->halffilled = false;
+                    smp_mb();
+                    atomic_set(&snapstore->halffilled, 0);
 
                     current_blk_size = 0;
                     rangelist_ex_init( &blk_rangelist );
@@ -552,7 +554,7 @@ blk_descr_unify_t* snapstore_get_empty_block( snapstore_t* snapstore )
 {
     blk_descr_unify_t* result = NULL;
 
-    if (snapstore->overflowed)
+    if (atomic_read(&snapstore->overflowed))
         return NULL;
 
     if (snapstore->file != NULL)
@@ -563,12 +565,14 @@ blk_descr_unify_t* snapstore_get_empty_block( snapstore_t* snapstore )
         result = (blk_descr_unify_t*)blk_descr_mem_pool_take( &snapstore->mem->pool );
 
     if (NULL == result){
-        if (snapstore->ctrl_pipe){
-            sector_t fill_status;
-            _snapstore_check_halffill( snapstore, &fill_status );
-            ctrl_pipe_request_overflow( snapstore->ctrl_pipe, -EINVAL, sector_to_streamsize( fill_status ) );
+        if (atomic_inc_return(&snapstore->overflowed) == 1) {
+            if (snapstore->ctrl_pipe){
+                sector_t fill_status;
+
+                _snapstore_check_halffill( snapstore, &fill_status );
+                ctrl_pipe_request_overflow( snapstore->ctrl_pipe, -EINVAL, sector_to_streamsize( fill_status ) );
+            }
         }
-        snapstore->overflowed = true;
     }
 
     return result;
@@ -593,12 +597,12 @@ int snapstore_request_store( snapstore_t* snapstore, blk_deferred_request_t* dio
     int res = SUCCESS;
 
     if (snapstore->ctrl_pipe){
-        if (!snapstore->halffilled){
+        if (atomic_read(&snapstore->halffilled) == 0) {
             sector_t fill_status = 0;
 
-            if (_snapstore_check_halffill( snapstore, &fill_status )){
-                snapstore->halffilled = true;
-                ctrl_pipe_request_halffill( snapstore->ctrl_pipe, sector_to_streamsize( fill_status ) );
+            if (_snapstore_check_halffill( snapstore, &fill_status )) {
+                if (atomic_inc_return(&snapstore->halffilled) == 1)
+                    ctrl_pipe_request_halffill( snapstore->ctrl_pipe, sector_to_streamsize( fill_status ) );
             }
         }
     }

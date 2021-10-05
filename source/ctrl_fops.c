@@ -18,6 +18,7 @@
 #include "page_array.h"
 #include "blk_deferred.h"
 #include "enum_block.h"
+#include "kernel_entries.h"
 
 #define SECTION "ctrl_fops "
 #include "log_format.h"
@@ -140,6 +141,7 @@ int ioctl_compatibility_flags( unsigned long arg )
 #ifdef SNAPSTORE_MULTIDEV
     param.flags |= VEEAMSNAP_COMPATIBILITY_MULTIDEV;
 #endif
+    param.flags |= VEEAMSNAP_COMPATIBILITY_KENTRY;
 
     if (0 != copy_to_user( (void*)arg, &param, sizeof( struct ioctl_compatibility_flags_s ) )){
         log_err( "Unable to get compatibility flags: invalid user buffer" );
@@ -303,6 +305,95 @@ int ioctl_tracking_mark_dirty_blocks(unsigned long arg)
     dbg_kfree(p_dirty_blocks);
 
     return result;
+}
+
+int ioctl_set_kernel_entries(unsigned long arg)
+{
+    int ret = 0;
+    struct ioctl_set_kernel_entries_s param;
+    struct kernel_entry_s *entries = NULL;
+    size_t entries_size;
+    size_t inx;
+    char *name;
+    unsigned long symbols_offset;
+
+    if (0 != copy_from_user(&param, (void*)arg, sizeof(struct ioctl_set_kernel_entries_s))) {
+        log_err("Unable to set kernel entries: invalid user buffer");
+        return -ENODATA;
+    }
+
+    entries_size = param.count * sizeof(struct kernel_entry_s);
+    entries = dbg_kzalloc(entries_size, GFP_KERNEL);
+    if (!entries) {
+        log_err_format("Unable to set kernel entries: cannot allocate [%ld] bytes", entries_size);
+        return -ENOMEM;
+    }
+
+    if (0 != copy_from_user(entries, param.entries, entries_size)) {
+        log_err("Unable to set kernel entries: invalid user buffer");
+        ret = -ENODATA;
+        goto out;
+    }
+
+    // First entry should be printk
+    name = strndup_user(entries[0].name, KERNEL_ENTRY_NAME_MAX);
+    if (IS_ERR(name)) {
+        log_err("Unable to set kernel entries: invalid user buffer");
+        ret = PTR_ERR(name);
+        goto out;
+    }
+    if (strcmp(name, "printk") != 0)
+        ret = -EINVAL;
+    kfree(name);
+    if (ret)
+        goto out;
+    symbols_offset = (unsigned long)(printk) - (unsigned long)entries[0].addr;
+
+    for (inx=1; inx<param.count; inx++) {
+        name = strndup_user(entries[inx].name, KERNEL_ENTRY_NAME_MAX);
+        if (IS_ERR(name)) {
+            log_err("Unable to set kernel entries: invalid user buffer");
+            ret = PTR_ERR(name);
+            break;
+        }
+
+        ret = ke_set_addr(name, (void *)(entries[inx].addr + symbols_offset));
+        kfree(name);
+        if (ret)
+            break;
+    }
+
+out:
+    kfree(entries);
+    return ret;
+}
+
+int ioctl_get_unresolved_kernel_entries(unsigned long arg)
+{
+    int ret = 0;
+    struct ioctl_get_unresolved_kernel_entries_s* param;
+
+    param = dbg_kzalloc(sizeof(struct ioctl_get_unresolved_kernel_entries_s), GFP_KERNEL);
+    if (!param) {
+        log_err("Unable to get unresolved kernel entries: cannot allocate buffer");
+        return -ENOMEM;
+    }
+
+    ret = ke_get_unresolved(param->buf, sizeof(param->buf));
+    if (ret < 0) {
+        log_err("Unable to get unresolved kernel entries");
+        goto out;
+    }
+    if (ret == 0)
+        goto out;
+
+    if (0 != copy_to_user((void*)arg, param, sizeof(struct ioctl_get_unresolved_kernel_entries_s))) {
+        log_err("Unable to get unresolved kernel entries: invalid user buffer for arguments");
+        ret = -ENODATA;
+    }
+out:
+    kfree(param);
+    return ret;
 }
 
 int ioctl_snapshot_create( unsigned long arg )
@@ -808,6 +899,8 @@ static veeam_ioctl_table_t veeam_ioctl_table[] =
     { (IOCTL_TRACKING_BLOCK_SIZE), ioctl_tracking_block_size },
     { (IOCTL_TRACKING_READ_CBT_BITMAP), ioctl_tracking_read_cbt_map },
     { (IOCTL_TRACKING_MARK_DIRTY_BLOCKS), ioctl_tracking_mark_dirty_blocks},
+    { (IOCTL_SET_KERNEL_ENTRIES), ioctl_set_kernel_entries},
+    { (IOCTL_GET_UNRESOLVED_KERNEL_ENTRIES), ioctl_get_unresolved_kernel_entries},
 
     { (IOCTL_SNAPSHOT_CREATE), ioctl_snapshot_create },
     { (IOCTL_SNAPSHOT_DESTROY), ioctl_snapshot_destroy },

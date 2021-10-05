@@ -93,18 +93,29 @@ int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicU
     mutex_init(&collector->locker);
 
     {
+#ifdef VEEAMSNAP_BLK_FREEZE
         struct super_block* sb = NULL;
         res = blk_freeze_bdev( collector->dev_id, collector->device, &sb);
-        if (res == SUCCESS){
-#ifdef CONFIG_BLK_FILTER
-            res = tracker_queue_ref(collector->device->bd_disk, collector->device->bd_partno, &collector->tracker_queue);
 #else
-            res = tracker_queue_ref(bdev_get_queue(collector->device), &collector->tracker_queue);
+        res = freeze_bdev(collector->device);
+#endif
+
+        if (res == SUCCESS){
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+            res = tracker_disk_ref(collector->device->bd_disk, &collector->tr_disk);
+#else
+            res = tracker_disk_ref(collector->device->bd_disk->queue, &collector->tr_disk);
 #endif
             if (res != SUCCESS)
-                log_err("Unable to initialize snapstore collector: failed to reference tracker queue");
+                log_err("Unable to initialize snapstore collector: failed to reference tracker disk");
 
+#ifdef VEEAMSNAP_BLK_FREEZE
             sb = blk_thaw_bdev(collector->dev_id, collector->device, sb);
+#else
+            res = thaw_bdev(collector->device);
+            if (res != SUCCESS)
+                log_err("Failed to thaw block device");
+#endif
         }
     }
 
@@ -114,9 +125,9 @@ int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicU
 
 void _collector_stop( snapdata_collector_t* collector )
 {
-    if (collector->tracker_queue != NULL){
-        tracker_queue_unref( collector->tracker_queue );
-        collector->tracker_queue = NULL;
+    if (collector->tr_disk != NULL){
+        tracker_disk_unref( collector->tr_disk );
+        collector->tr_disk = NULL;
     }
 }
 
@@ -221,7 +232,7 @@ int page_array_convert2rangelist(page_array_t* changes, rangelist_t* rangelist, 
     if ((res == SUCCESS) && (rg.cnt != 0)){
         res = rangelist_add(rangelist, &rg);
         rg.cnt = 0;
-    }        
+    }
     return res;
 }
 #endif
@@ -298,39 +309,32 @@ int snapdata_collect_Get( dev_t dev_id, snapdata_collector_t** p_collector )
     CONTAINER_SL_FOREACH_END( SnapdataCollectors );
     return res;
 }
-
-#ifdef CONFIG_BLK_FILTER
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 int snapdata_collect_Find(struct bio *bio, snapdata_collector_t** p_collector)
+#else
+int snapdata_collect_Find(struct bio *bio, struct request_queue *queue, snapdata_collector_t** p_collector)
+#endif
 {
     int res = -ENODATA;
     content_sl_t* content = NULL;
-    snapdata_collector_t* collector = NULL;
-    CONTAINER_SL_FOREACH_BEGIN(SnapdataCollectors, content)
-    {
-        collector = (snapdata_collector_t*)content;
-        
-        if ((collector->device->bd_disk == bio->bi_disk) && (collector->device->bd_partno == bio->bi_partno)) {
-            *p_collector = collector;
-            res = SUCCESS;    //don`t continue
-        }
-    }
-    CONTAINER_SL_FOREACH_END(SnapdataCollectors);
-    return res;
-}
-#else //
-int snapdata_collect_Find( struct request_queue *q, struct bio *bio, snapdata_collector_t** p_collector )
-{
-    int res = -ENODATA;
-    content_sl_t* content = NULL;
-    snapdata_collector_t* collector = NULL;
+
     CONTAINER_SL_FOREACH_BEGIN( SnapdataCollectors, content )
     {
-        collector = (snapdata_collector_t*)content;
-
-        if ( (q == bdev_get_queue( collector->device ))
+        snapdata_collector_t* collector = (snapdata_collector_t*)content;
+#ifdef VEEAMSNAP_BDEV_BIO
+        if (collector->device == bio->bi_bdev)
+#else
+        if (
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+            (collector->device->bd_disk == bio->bi_disk)
+#else
+            (collector->device->bd_disk->queue == queue)
+#endif
             && (bio_bi_sector( bio ) >= blk_dev_get_start_sect( collector->device ))
             && ( bio_bi_sector( bio ) < (blk_dev_get_start_sect( collector->device ) + blk_dev_get_capacity( collector->device )))
-        ){
+        )
+#endif
+        {
             *p_collector = collector;
             res = SUCCESS;    //don`t continue
         }
@@ -338,7 +342,6 @@ int snapdata_collect_Find( struct request_queue *q, struct bio *bio, snapdata_co
     CONTAINER_SL_FOREACH_END( SnapdataCollectors );
     return res;
 }
-#endif //CONFIG_BLK_FILTER
 
 int _snapdata_collect_bvec( snapdata_collector_t* collector, sector_t ofs, struct bio_vec* bvec )
 {
@@ -432,11 +435,8 @@ void snapdata_collect_Process( snapdata_collector_t* collector, struct bio *bio 
 
     if (unlikely(collector->fail_code != SUCCESS))
         return;
-#ifdef CONFIG_BLK_FILTER
-    ofs = bio_bi_sector(bio);
-#else
+
     ofs = bio_bi_sector( bio ) - blk_dev_get_start_sect( collector->device );
-#endif
     size = bio_sectors( bio );
 
     {

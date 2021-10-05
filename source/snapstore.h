@@ -29,8 +29,8 @@ typedef struct snapstore_s
     ctrl_pipe_t* ctrl_pipe;
     sector_t empty_limit;
 
-    volatile bool halffilled;
-    volatile bool overflowed;
+    atomic_t halffilled;
+    atomic_t overflowed;
 }snapstore_t;
 
 

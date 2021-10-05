@@ -121,20 +121,20 @@ int _dev_direct_submit_pages(
         struct request_queue *q = bdev_get_queue( blkdev );
         size_sector = min_t( sector_t, size_sector, q->limits.max_sectors );
 
-#ifdef BIO_MAX_SECTORS
+#ifdef BIO_MAX_VECS
+        nr_iovecs = bio_max_segs(DIV_ROUND_UP(size_sector, PAGE_SIZE));
+#elif defined(BIO_MAX_SECTORS)
         size_sector = min_t( sector_t, size_sector, BIO_MAX_SECTORS );
+        nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
 #else
         size_sector = min_t( sector_t, size_sector, (BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT)) );
+        nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
 #endif
-
     }
-
-    nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
 
     while (NULL == (bb = _blk_dev_direct_bio_alloc( nr_iovecs ))){
         log_err_d( "Failed to allocate pages for direct IO. nr_iovecs=", nr_iovecs );
         log_err_sect( "ofs_sector=", ofs_sector );
-        log_err_sect( "size_sector=", size_sector );
 
         *processed_sectors = 0;
         return -ENOMEM;
@@ -179,10 +179,14 @@ int _dev_direct_submit_pages(
         process_sect += bvec_len_sect;
     }
 
+#ifdef HAVE_BLK_INTERPOSER
+    submit_bio_noacct(bb);
+#else
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
     submit_bio( direction, bb );
 #else
     submit_bio( bb );
+#endif
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
@@ -264,10 +268,14 @@ int blk_direct_submit_page( struct block_device* blkdev, int direction, sector_t
 
     BUG_ON(pg == NULL);
     if (0 != bio_add_page( bb, pg, PAGE_SIZE, 0 )){
+#ifdef HAVE_BLK_INTERPOSER
+        submit_bio_noacct(bb);
+#else
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
         submit_bio( bb->bi_rw, bb );
 #else
         submit_bio( bb );
+#endif
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)

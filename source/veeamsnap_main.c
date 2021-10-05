@@ -21,6 +21,7 @@
 #include "tracking.h"
 #include "sparse_bitmap.h"
 #include "ctrl_sysfs.h"
+#include "kernel_entries.h"
 
 #define SECTION "main      "
 #include "log_format.h"
@@ -28,11 +29,6 @@
 #ifdef PERSISTENT_CBT
 #include <linux/notifier.h>
 #include "cbt_persistent.h"
-#endif
-
-#ifdef CONFIG_BLK_FILTER
-#include <linux/blk-filter.h>
-#define VEEAMSNAP_DEFAULT_ALTITUDE BLK_FILTER_ALTITUDE_MIN
 #endif
 
 #include <linux/reboot.h>       //use old methon
@@ -45,7 +41,7 @@
 
 static int g_param_zerosnapdata = 0;
 static int g_param_debuglogging = 0;
-static char* g_logdir = NULL; 
+static char* g_logdir = NULL;
 static unsigned long g_param_logmaxsize = 15*1024*1024;
 #ifdef PERSISTENT_CBT
 static char* g_cbtdata = NULL;
@@ -70,7 +66,7 @@ int inc_snapstore_block_size_pow(void)
 {
     if (g_param_snapstore_block_size_pow > 30)
         return -EFAULT;
-    
+
     ++g_param_snapstore_block_size_pow;
     return SUCCESS;
 }
@@ -167,7 +163,7 @@ int set_params(char* param_name, char* param_value)
     }
     else
         res = -EINVAL;
-    
+
     return res;
 }
 
@@ -180,50 +176,6 @@ int get_params(char* buf)
     return res;
 }
 #endif //VEEAMSNAP_SYSFS_PARAMS
-
-#ifdef CONFIG_BLK_FILTER
-blk_qc_t filter_submit_original_bio(struct bio *bio);
-
-static void filter_disk_add(struct gendisk *disk)
-{
-    log_tr_format("new disk [%s] in system", disk->disk_name);
-}
-static void filter_disk_del(struct gendisk *disk)
-{
-    log_tr_format("del disk [%s] from system", disk->disk_name);
-}
-static void filter_disk_release(struct gendisk *disk)
-{
-    log_tr_format("release disk [%s] from system", disk->disk_name);
-}
-static blk_qc_t filter_submit_bio(struct bio *bio)
-{
-    blk_qc_t result;
-    if (tracking_submit_bio(bio, &result))
-        return result;
-    else
-        return filter_submit_original_bio(bio);
-}
-
-static const struct blk_filter_ops g_filter_ops = {
-    .disk_add = filter_disk_add,
-    .disk_del = filter_disk_del,
-    .disk_release = filter_disk_release,
-    .submit_bio = filter_submit_bio
-};
-
-static struct blk_filter g_filter = {
-    .name = "veeamsnap",
-    .ops = &g_filter_ops,
-    .altitude = VEEAMSNAP_DEFAULT_ALTITUDE,
-    .blk_filter_ctx = NULL
-};
-
-blk_qc_t filter_submit_original_bio(struct bio *bio)
-{
-    return blk_filter_submit_bio_next(&g_filter, bio);
-}
-#endif
 
 static struct device* veeamsnap_device = NULL;
 
@@ -351,7 +303,9 @@ int __init veeamsnap_init(void)
     log_tr_s("cbtdata: ", g_cbtdata);
 #endif
     log_tr_x("fixflags: ", g_param_fixflags);
-
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+    log_tr("The substitution of the disk's fops is used.");
+#endif
     if (g_param_snapstore_block_size_pow > 23){
         g_param_snapstore_block_size_pow = 23;
         log_tr_d("Limited snapstore_block_size_pow: ", g_param_snapstore_block_size_pow);
@@ -370,10 +324,10 @@ int __init veeamsnap_init(void)
         log_tr_d("Limited change_tracking_block_size_pow: ", g_param_change_tracking_block_size_pow);
     }
 
-#if defined(DISTRIB_NAME_RHEL) 
+#if defined(DISTRIB_NAME_RHEL)
     show_distrib_version("RHEL");
 #endif
-#if defined(DISTRIB_NAME_CENTOS) 
+#if defined(DISTRIB_NAME_CENTOS)
     show_distrib_version("CentOS");
 #endif
 #if defined(DISTRIB_NAME_OL)
@@ -382,15 +336,17 @@ int __init veeamsnap_init(void)
 #if defined(DISTRIB_NAME_FEDORA)
     show_distrib_version("Fedora");
 #endif
+
 #if defined(DISTRIB_NAME_SLES) || defined(DISTRIB_NAME_SLES_SAP)
     show_distrib_version("SLES");
-#endif
-#if defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_OPENSUSE_LEAP)
+#elif defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_OPENSUSE_LEAP)
     show_distrib_version("openSUSE");
-#endif
-#if defined(DISTRIB_NAME_OPENSUSE_TUMBLEWEED)
+#elif defined(DISTRIB_NAME_OPENSUSE_TUMBLEWEED)
     show_distrib_version("openSUSE Tumbleweed");
+#elif defined(OS_RELEASE_SUSE)
+    show_distrib_version("SLES");
 #endif
+
 #if defined(DISTRIB_NAME_DEBIAN)
     show_distrib_version("Debian");
 #endif
@@ -401,8 +357,6 @@ int __init veeamsnap_init(void)
 #ifdef SNAPIMAGE_TRACER
     log_tr("Snapshot image tracing is available");
 #endif
-
-    //btreefs_enum( );
 
     page_arrays_init( );
 
@@ -447,7 +401,7 @@ int __init veeamsnap_init(void)
         if ((result = tracker_init( )) != SUCCESS)
             break;
 
-        if ((result = tracker_queue_init( )) != SUCCESS)
+        if ((result = tracker_disk_init( )) != SUCCESS)
             break;
 
         if ((result = snapshot_Init( )) != SUCCESS)
@@ -490,17 +444,6 @@ int __init veeamsnap_init(void)
             break;
 #endif
         }
-
-#ifdef CONFIG_BLK_FILTER
-        if ((result = blk_filter_register(&g_filter)) != SUCCESS) {
-            const char* exist_filter = blk_filter_check_altitude(g_filter.altitude);
-            if (exist_filter)
-                log_err_format("Block io layer filter [%s] already exist on altitude [%d]", exist_filter, g_filter.altitude);
-
-            log_err("Failed to register block io layer filter");
-            break;
-        }
-#endif
 
     }while(false);
 /*
@@ -555,11 +498,7 @@ void __exit veeamsnap_exit(void)
 
         result = tracker_done( );
         if (SUCCESS == result){
-            result = tracker_queue_done( );
-#ifdef CONFIG_BLK_FILTER
-            if (SUCCESS == result)
-                result = blk_filter_unregister(&g_filter);
-#endif
+            result = tracker_disk_done( );
 
 #ifdef PERSISTENT_CBT
             cbt_persistent_done();

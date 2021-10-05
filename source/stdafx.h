@@ -6,9 +6,51 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/version.h>
+#include "config.h"
+
+#if defined(DISTRIB_NAME_OPENSUSE_LEAP) || defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_SLES) || defined(DISTRIB_NAME_SLES_SAP)
+#ifndef OS_RELEASE_SUSE
+#define OS_RELEASE_SUSE
+#endif
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,2,0)
+#define HAVE_MAKE_REQUEST_INT
+#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)
+#ifndef VEEAMSNAP_MQ_IO
 #define VEEAMSNAP_MQ_IO
+#endif
+#endif
+
+#if ((LINUX_VERSION_CODE >= KERNEL_VERSION(5,8,0)) && (LINUX_VERSION_CODE < KERNEL_VERSION(5,9,0))) || (defined(BLK_MQ_MAKE_REQUEST_ADDR) || defined(BLK_MQ_MAKE_REQUEST_EXPORTED))
+#ifndef VEEAMSNAP_MQ_REQUEST
+#define VEEAMSNAP_MQ_REQUEST
+#endif
+#endif
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)) || (defined(OS_RELEASE_SUSE) && (DISTRIB_VERSION_1 == 15) && (DISTRIB_VERSION_2 == 3)) || defined(SUBMIT_BIO_NOACCT_EXPORTED)
+# ifndef VEEAMSNAP_DISK_SUBMIT_BIO
+#  define VEEAMSNAP_DISK_SUBMIT_BIO
+# endif
+# if defined(blk_has_interposer)
+#  ifndef HAVE_BLK_INTERPOSER
+#   define HAVE_BLK_INTERPOSER
+#  endif
+# endif
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
+#ifndef VEEAMSNAP_BLK_FREEZE
+#define VEEAMSNAP_BLK_FREEZE
+#endif
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,12,0)
+# ifndef VEEAMSNAP_BDEV_BIO
+#  define VEEAMSNAP_BDEV_BIO
+# endif
 #endif
 
 #include <linux/fs.h>
@@ -29,10 +71,6 @@
 #include <linux/bitmap.h>
 #include <asm/atomic.h>
 #include <linux/random.h>
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,2,0)
-#define HAVE_MAKE_REQUEST_INT
-#endif
 
 #ifndef pr_warn
 #define pr_warn pr_warning
@@ -92,7 +130,7 @@ int get_snapstore_block_size_pow(void);
 int inc_snapstore_block_size_pow(void);
 int get_change_tracking_block_size_pow(void);
 
-#define FIXFLAG_RH6_SPINLOCK 1    //https://www.veeam.com/kb2786 
+#define FIXFLAG_RH6_SPINLOCK 1    //https://www.veeam.com/kb2786
 unsigned int get_fixflags(void);
 
 #define SNAPDATA_ZEROED
@@ -110,10 +148,6 @@ unsigned int get_fixflags(void);
 //#define VEEAM_IOCTL_LOGGING
 
 #define SNAPSTORE_MULTIDEV
-
-#if defined(DISTRIB_NAME_OPENSUSE_LEAP) || defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_SLES) || defined(DISTRIB_NAME_SLES_SAP)
-#define OS_RELEASE_SUSE
-#endif
 
 #define PERSISTENT_CBT
 

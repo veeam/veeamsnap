@@ -180,7 +180,6 @@ int cbt_storage_check(cbt_storage_accessor_t* accessor)
     int res = SUCCESS;
     //check all pages
 
-    //log_tr("Checking CRC32 for all pages:");
     log_tr("DEBUG!Reading first page of CBT data");
     accessor->page_number = 0;
     accessor->used_page_count = accessor->page_count;
@@ -358,7 +357,7 @@ int cbt_storage_read(cbt_storage_accessor_t* accessor, void* dst, size_t sz)
         }
 
         if (ofs == sz)
-            break;//reading is complete 
+            break;//reading is complete
 
         can_be_read = min(CBT_PAGE_DATA_SIZE - accessor->page_offset, sz - ofs);
         memcpy(dst, accessor->page->data + accessor->page_offset, can_be_read);
@@ -386,7 +385,7 @@ int cbt_storage_write(cbt_storage_accessor_t* accessor, void* src, size_t sz)
         log_tr_format("can_be_write is zero. sz=%lu, ofs=%lu page_offset=%lu", (unsigned long)(sz), (unsigned long)(ofs), (unsigned long)(accessor->page_offset));
         return -EFAULT;
     }
-    
+
     memcpy(accessor->page->data + accessor->page_offset, src + ofs, can_be_write);
     accessor->page_offset += can_be_write;
     ofs += can_be_write;
@@ -417,7 +416,7 @@ int cbt_storage_write(cbt_storage_accessor_t* accessor, void* src, size_t sz)
         }
 
         if (ofs == sz)
-            break;//writing is complete 
+            break;//writing is complete
 
         can_be_write = min(CBT_PAGE_DATA_SIZE - accessor->page_offset, sz - ofs);
         log_tr_sz("DEBUG! can_be_write=", can_be_write);
@@ -455,7 +454,7 @@ int cbt_storage_write_finish(cbt_storage_accessor_t* accessor)
 
     {//store empty unused pages
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
-        struct timespec tm = {0}; 
+        struct timespec tm = {0};
 #else
         struct timespec64 tm = { 0 };
 #endif

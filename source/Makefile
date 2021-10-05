@@ -16,6 +16,7 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 	rangelist.o \
 	rangelist_ex.o \
 	rangevector.o \
+    kernel_entries.o \
 	blk_util.o \
 	blk_direct.o \
 	blk_redirect.o \
@@ -57,38 +58,30 @@ SHELL:=/bin/bash
 ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; val="DISTRIB_NAME.$$ID"; echo "-D"$${val//[.-]/_} | awk '{print toupper($$0)}' ; fi )
 ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; awk '{ n=split($$0,v,"."); for (i=0; ++i<=n;) print "-DDISTRIB_VERSION_"i"="v[i] }' <<< $$VERSION_ID ; fi )
 
-# try to find kernel headers files
-include_linux = "."
-ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/build/include/linux" && echo -n yes),yes) 
-include_linux = /lib/modules/$(KERNEL_RELEASE)/build/include/linux
-endif
-ifeq ($(shell test -e "/lib/modules/$(KERNEL_RELEASE)/source/include/linux" && echo -n yes),yes) 
-include_linux = /lib/modules/$(KERNEL_RELEASE)/source/include/linux
-endif
-
-# try to find patch for lookup_bdev 
-# https://patchwork.kernel.org/patch/7748091/ 
-ifeq ($(shell test -e $(include_linux)/fs.h && echo -n yes),yes) 
-ccflags-y += $(shell if [[ 0 -ne $(shell cat $(include_linux)/fs.h | grep 'lookup_bdev' | grep -c 'mask' ) ]]; then echo "-DLOOKUP_BDEV_MASK"; fi )
-endif 
-
-all:
+default:
+	@echo Configuring...
+	chmod +x ./genconfig.sh && ./genconfig.sh "$(KERNEL_RELEASE)"
 	@echo Making all...
 	@echo ccflags-y= $(ccflags-y)
-	make -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules
+	make -j$(shell nproc) -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules
 	@echo Completed.
 
 clean:
 	@echo Cleaning ...
 	make -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) clean
+	@rm -f ./config.h
 	@echo Completed.
 
-install:
+#install: default
+#	$(MAKE) -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules_install
+install: default
 	@echo Installing veeamsnap kernel module
 	mkdir -p /lib/modules/$(KERNEL_RELEASE)/kernel/drivers/veeam
 	cp $(KERNEL_MODULE_NAME).ko /lib/modules/$(KERNEL_RELEASE)/kernel/drivers/veeam
 	depmod
 	@echo Completed.
+uninstall:
+	$(RM) /lib/modules/$(KERNEL_RELEASE)/kernel/drivers/veeam/veeamsnap.ko
 
 load:
 	@echo Loading $(KERNEL_MODULE_NAME) kernel module from current folder

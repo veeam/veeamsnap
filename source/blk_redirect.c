@@ -156,20 +156,23 @@ int _blk_dev_redirect_part_fast( blk_redirect_bio_endio_t* rq_endio, int directi
     sector_t sect_ofs = 0;
     sector_t processed_sectors = 0;
     int nr_iovecs;
-    unsigned int max_sect;
+
     blk_redirect_bio_endio_list_t* bio_endio_rec;
 
     {
         struct request_queue *q = bdev_get_queue( blk_dev );
-#ifdef BIO_MAX_SECTORS
-        max_sect = BIO_MAX_SECTORS;
-#else
-        max_sect = BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT);
-#endif
-        max_sect = min( max_sect, q->limits.max_sectors );
-    }
 
-    nr_iovecs = max_sect >> (PAGE_SHIFT - SECTOR_SHIFT);
+#ifdef BIO_MAX_VECS
+        nr_iovecs = bio_max_segs(DIV_ROUND_UP(q->limits.max_sectors, PAGE_SIZE));
+#elif defined(BIO_MAX_SECTORS)
+        unsigned int max_sect = min_t(unsigned int, BIO_MAX_SECTORS, q->limits.max_sectors );
+        nr_iovecs = max_sect >> (PAGE_SHIFT - SECTOR_SHIFT);
+#else
+        unsigned int max_sect = min_t(unsigned int, BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT),
+                                    q->limits.max_sectors );
+        nr_iovecs = max_sect >> (PAGE_SHIFT - SECTOR_SHIFT);
+#endif
+    }
 
     bio_for_each_segment( bvec, rq_endio->bio, iter ){
         sector_t bvec_ofs;
@@ -305,10 +308,14 @@ void blk_dev_redirect_submit( blk_redirect_bio_endio_t* rq_endio )
     rq_endio->bio_endio_head_rec = NULL;
 
     while (curr != NULL){
+#ifdef HAVE_BLK_INTERPOSER
+        submit_bio_noacct(curr->this);
+#else
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
         submit_bio( bio_data_dir( rq_endio->bio ), curr->this );
 #else
         submit_bio( curr->this );
+#endif
 #endif
         curr = curr->next;
     }
@@ -433,13 +440,11 @@ int blk_dev_redirect_zeroed_part( blk_redirect_bio_endio_t* rq_endio, sector_t r
 int blk_dev_redirect_read_zeroed( blk_redirect_bio_endio_t* rq_endio, struct block_device*  blk_dev, sector_t rq_pos, sector_t blk_ofs_start, sector_t blk_ofs_count, rangevector_t* zero_sectors )
 {
     int res = SUCCESS;
-    sector_t current_portion;
-    sector_t ofs = 0;
-
     rangevector_el_t* el = NULL;
+    bool is_zero_covering = false;
 
-    sector_t from_sect;
-    sector_t to_sect;
+    sector_t from_sect = rq_pos + blk_ofs_start;
+    sector_t to_sect = rq_pos + blk_ofs_start + blk_ofs_count;
 
     BUG_ON( NULL == zero_sectors );
 
@@ -448,6 +453,7 @@ int blk_dev_redirect_read_zeroed( blk_redirect_bio_endio_t* rq_endio, struct blo
     {
         range_t* first_zero_range;
         range_t* last_zero_range;
+        range_t* zero_range;
         size_t limit;
 
         limit = (size_t)atomic_read( &el->cnt );
@@ -457,55 +463,39 @@ int blk_dev_redirect_read_zeroed( blk_redirect_bio_endio_t* rq_endio, struct blo
         first_zero_range = &el->ranges[0];
         last_zero_range = &el->ranges[limit - 1];
 
-        from_sect = (rq_pos + blk_ofs_start + ofs);
-        to_sect = (rq_pos + blk_ofs_start + blk_ofs_count);
-
-        if ((last_zero_range->ofs + last_zero_range->cnt) <= from_sect){
+        if ((last_zero_range->ofs + last_zero_range->cnt) <= from_sect)
             continue;
-        }
 
-        if (first_zero_range->ofs >= to_sect){
+        if (first_zero_range->ofs >= to_sect)
             break;
-        }
 
-        while (from_sect < to_sect){
-            range_t* zero_range;
-            zero_range = rangevector_el_find_first_hit( el, from_sect, to_sect );
-            if (zero_range == NULL)
-                break;
+        zero_range = rangevector_el_find_first_hit(el, from_sect, to_sect);
+        if (likely(zero_range))
+            if ((zero_range->ofs <= from_sect) && (to_sect <= (zero_range->ofs + zero_range->cnt)))
+                is_zero_covering = true; /* the range of zeros is cover the read request */
 
-            if (zero_range->ofs > rq_pos + blk_ofs_start + ofs){
-                sector_t pre_zero_cnt = zero_range->ofs - (rq_pos + blk_ofs_start + ofs);
-
-                res = blk_dev_redirect_part( rq_endio, READ, blk_dev, rq_pos + blk_ofs_start + ofs, blk_ofs_start + ofs, pre_zero_cnt );
-                if (res != SUCCESS){
-                    break;
-                }
-                ofs += pre_zero_cnt;
-            }
-
-            current_portion = min_t( sector_t, zero_range->cnt, blk_ofs_count - ofs );
-
-            res = blk_dev_redirect_zeroed_part( rq_endio, blk_ofs_start + ofs, current_portion );
-            if (res != SUCCESS){
-                break;
-            }
-            ofs += current_portion;
-
-            from_sect = (rq_pos + blk_ofs_start + ofs);
-        };
+        break;
     }
     RANGEVECTOR_FOREACH_EL_END( );
     RANGEVECTOR_READ_UNLOCK( zero_sectors );
-    if ((blk_ofs_count - ofs) > 0)
-        res = blk_dev_redirect_part( rq_endio, READ, blk_dev, rq_pos + blk_ofs_start + ofs, blk_ofs_start + ofs, blk_ofs_count - ofs );
+
+    if (is_zero_covering)
+        res = blk_dev_redirect_zeroed_part(rq_endio, blk_ofs_start, blk_ofs_count);
+    else
+        res = blk_dev_redirect_part( rq_endio, READ, blk_dev, rq_pos + blk_ofs_start, blk_ofs_start, blk_ofs_count );
+
     return res;
 }
 
 void blk_redirect_complete( blk_redirect_bio_endio_t* rq_endio, int res )
 {
-    rq_endio->complete_cb( rq_endio->complete_param, rq_endio->bio, res );
-    queue_content_sl_free( &rq_endio->content );
+    void* complete_param = rq_endio->complete_param;
+    struct bio* bio = rq_endio->bio;
+    redirect_bio_endio_complete_cb* complete_cb = rq_endio->complete_cb;
+
+    queue_content_sl_free(&rq_endio->content);
+
+    complete_cb( complete_param, bio, res );
 }
 
 #endif //SNAPDATA_ZEROED

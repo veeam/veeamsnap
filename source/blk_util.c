@@ -8,10 +8,14 @@
 #define SECTION "blk       "
 #include "log_format.h"
 
+const fmode_t fmode = FMODE_READ | FMODE_WRITE;
+
 int blk_dev_open( dev_t dev_id, struct block_device** p_blk_dev )
 {
     int result = SUCCESS;
     struct block_device* blk_dev;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,8,0)
     int refCount;
 
     blk_dev = bdget( dev_id );
@@ -21,14 +25,19 @@ int blk_dev_open( dev_t dev_id, struct block_device** p_blk_dev )
     }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38)
-    refCount = blkdev_get( blk_dev, FMODE_READ | FMODE_WRITE );
+    refCount = blkdev_get( blk_dev, fmode );
 #else
-    refCount = blkdev_get( blk_dev, FMODE_READ | FMODE_WRITE, NULL );
+    refCount = blkdev_get( blk_dev, fmode, NULL );
 #endif
     if (refCount < 0){
         log_err_format( "Unable to open device [%d:%d]: blkdev_get returned error code %d", MAJOR( dev_id ), MINOR( dev_id ), 0 - refCount );
         result = refCount;
     }
+#else
+    blk_dev = blkdev_get_by_dev(dev_id, fmode, NULL);
+    if (IS_ERR(blk_dev))
+        result = PTR_ERR(blk_dev);
+#endif
 
     if (result == SUCCESS)
         *p_blk_dev = blk_dev;
@@ -45,8 +54,13 @@ int _blk_dev_get_info( struct block_device* blk_dev, blk_dev_info_t* pdev_info )
     sector_t SectorStart;
     sector_t SectorsCapacity;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
     if (blk_dev->bd_part)
         SectorsCapacity = blk_dev->bd_part->nr_sects;
+#else
+    if (bdev_is_partition(blk_dev))
+        SectorsCapacity = bdev_nr_sectors(blk_dev);
+#endif
     else if (blk_dev->bd_disk)
         SectorsCapacity = get_capacity( blk_dev->bd_disk );
     else{
@@ -67,15 +81,9 @@ int _blk_dev_get_info( struct block_device* blk_dev, blk_dev_info_t* pdev_info )
         pdev_info->io_min = SECTOR_SIZE;
     }
 #else
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)
     pdev_info->physical_block_size = blk_dev->bd_disk->queue->limits.physical_block_size;
     pdev_info->logical_block_size = blk_dev->bd_disk->queue->limits.logical_block_size;
     pdev_info->io_min = blk_dev->bd_disk->queue->limits.io_min;
-#else
-    pdev_info->physical_block_size = blk_dev->bd_queue->limits.physical_block_size;
-    pdev_info->logical_block_size = blk_dev->bd_queue->limits.logical_block_size;
-    pdev_info->io_min = blk_dev->bd_queue->limits.io_min;
-#endif
 #endif
 
     pdev_info->blk_size = blk_dev_get_block_size( blk_dev );
@@ -105,6 +113,7 @@ int blk_dev_get_info( dev_t dev_id, blk_dev_info_t* pdev_info )
 }
 
 
+#ifdef VEEAMSNAP_BLK_FREEZE
 int blk_freeze_bdev( dev_t dev_id, struct block_device* device, struct super_block** psuperblock )
 {
     struct super_block* superblock;
@@ -147,3 +156,4 @@ struct super_block* blk_thaw_bdev( dev_t dev_id, struct block_device* device, st
     }
     return superblock;
 }
+#endif

@@ -13,7 +13,7 @@
 #include "log_format.h"
 
 
-// from vanilla kernel 2.6.32.9 
+// from vanilla kernel 2.6.32.9
 /*
  * Structure of the super block
  */

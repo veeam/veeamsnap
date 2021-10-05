@@ -31,3 +31,15 @@ static __inline sector_t sector_from_streamsize( stream_size_t steamsize )
 {
     return (sector_t)(steamsize >> SECTOR_SHIFT);
 }
+
+#ifndef sector_div
+#define sector_div(a, b) do_div(a, b)
+#endif
+
+#define sector_div_up(n, sz) ( \
+{ \
+	sector_t _r = ((n) + (sz) - 1); \
+	sector_div(_r, (sz)); \
+	_r; \
+} \
+)
