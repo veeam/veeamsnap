@@ -22,7 +22,7 @@ This module supports Linux kernels from 2.6.32 to 5.8.
 
 There are some problems with BFQ up to 5.2
 
-Experimental supports kernels from 5.8 to 5.12.
+Experimental supports for 5.14 kernel.
 
 For kernels 5.9 and later [blk_interposer](./blk_interposer/README.md) is recommended, but not mandatory.
 
