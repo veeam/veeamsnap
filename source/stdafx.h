@@ -8,6 +8,12 @@
 #include <linux/version.h>
 #include "config.h"
 
+#if defined(DISTRIB_NAME_OPENSUSE_LEAP) || defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_SLES) || defined(DISTRIB_NAME_SLES_SAP)
+#ifndef OS_RELEASE_SUSE
+#define OS_RELEASE_SUSE
+#endif
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,2,0)
 #define HAVE_MAKE_REQUEST_INT
 #endif
@@ -24,7 +30,7 @@
 #endif
 #endif
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)) || defined(SUBMIT_BIO_NOACCT_EXPORTED)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)) || (defined(OS_RELEASE_SUSE) && (DISTRIB_VERSION_1 == 15) && (DISTRIB_VERSION_2 == 3)) || defined(SUBMIT_BIO_NOACCT_EXPORTED)
 # ifndef VEEAMSNAP_DISK_SUBMIT_BIO
 #  define VEEAMSNAP_DISK_SUBMIT_BIO
 # endif
@@ -149,10 +155,6 @@ unsigned int get_fixflags(void);
 //#define VEEAM_IOCTL_LOGGING
 
 #define SNAPSTORE_MULTIDEV
-
-#if defined(DISTRIB_NAME_OPENSUSE_LEAP) || defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_SLES) || defined(DISTRIB_NAME_SLES_SAP)
-#define OS_RELEASE_SUSE
-#endif
 
 #define PERSISTENT_CBT
 

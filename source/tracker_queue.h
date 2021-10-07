@@ -58,6 +58,7 @@ static inline void blk_disk_unfreeze(struct gendisk *disk)
 #endif
 
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+#include "kernel_entries.h"
 
 static inline make_request_fn * tracker_disk_get_original_make_request(tracker_disk_t* tr_disk)
 {
@@ -66,12 +67,12 @@ static inline make_request_fn * tracker_disk_get_original_make_request(tracker_d
 
     /* prevents distortion of q_usage_counter counter in blk_queue_exit() */
     percpu_ref_get(&tr_disk->disk->queue->q_usage_counter);
-    return (blk_qc_t (*)(struct bio *))
-        (BLK_MQ_SUBMIT_BIO_ADDR + (long long)(((void *)printk) - (void *)PRINTK_ADDR));
+    return (blk_qc_t(*)(struct bio *))
+        ke_get_addr(KE_BLK_MQ_SUBMIT_BIO);
 }
 
 #elif defined(VEEAMSNAP_MQ_REQUEST)
-
+#include "kernel_entries.h"
 static inline make_request_fn * tracker_disk_get_original_make_request(tracker_disk_t* tr_disk)
 {
     if (tr_disk->original_make_request_fn)
@@ -82,8 +83,8 @@ static inline make_request_fn * tracker_disk_get_original_make_request(tracker_d
 #if defined(BLK_MQ_MAKE_REQUEST_EXPORTED)
     return blk_mq_make_request;
 #else
-    return (blk_qc_t (*)(struct request_queue *, struct bio *))
-        (BLK_MQ_MAKE_REQUEST_ADDR + (long long)(((void *)printk) - (void *)PRINTK_ADDR));
+    return (blk_qc_t(*)(struct request_queue *, struct bio *))
+        ke_get_addr(KE_BLK_MQ_MAKE_REQUEST);
 #endif
 }
 

@@ -6,7 +6,7 @@ KERNEL_MODULE_NAME := veeamsnap
 
 VERSION_MAJOR?=5
 VERSION_MINOR?=0
-VERSION_REV?=0
+VERSION_REV?=1
 VERSION_BUILD?=0
 VERSION=${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_REV}.${VERSION_BUILD}
 
@@ -22,6 +22,7 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 	rangelist.o \
 	rangelist_ex.o \
 	rangevector.o \
+    kernel_entries.o \
 	blk_util.o \
 	blk_direct.o \
 	blk_redirect.o \
@@ -59,6 +60,9 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 obj-m := $(KERNEL_MODULE_NAME).o
 $(KERNEL_MODULE_NAME)-y += $(KERNEL_MODULE_OBJECT_FILE_LIST)
 ccflags-y := -O2 -Wno-multichar
+SHELL:=/bin/bash 
+ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; val="DISTRIB_NAME.$$ID"; echo "-D"$${val//[.-]/_} | awk '{print toupper($$0)}' ; fi )
+ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; awk '{ n=split($$0,v,"."); for (i=0; ++i<=n;) print "-DDISTRIB_VERSION_"i"="v[i] }' <<< $$VERSION_ID ; fi )
 
 default:
 	@echo Configuring...

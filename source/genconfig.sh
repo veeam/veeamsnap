@@ -24,21 +24,33 @@ fi
 
 if [ -n "$3" ]
 then
-	if [ "-" = "$1" ]
+	if [ "-" = "$3" ]
 	then
 		echo "System map file is not set"
-    else
-    	SYSTEM_MAP_FILE="$3"
-    fi
+	else
+		SYSTEM_MAP_FILE="$3"
+	fi
 else
 	if [ -n "${KERNEL_VERSION}" ]
-    then
-		SYSTEM_MAP_FILE="/lib/modules/${KERNEL_VERSION}/System.map"
-		if [ ! -f "${SYSTEM_MAP_FILE}" ]
-		then
-			SYSTEM_MAP_FILE="/boot/System.map-${KERNEL_VERSION}"
-		fi
-    fi
+	then
+		FILES=( "/lib/modules/${KERNEL_VERSION}/System.map" "/boot/System.map-${KERNEL_VERSION}" "/usr/lib/debug/boot/System.map-${KERNEL_VERSION}" )
+		for FILE in ${FILES[@]}
+		do
+			if [ -f ${FILE} ]
+			then
+                HEADER=$(head -n 1 ${FILE} | awk '{print $1;}')
+                if [ "ffffffffffffffff" = "${HEADER}" ]
+                then
+                    echo "Fake System.map was found in '${FILE}'"
+                    continue
+                fi
+
+                echo "Real System.map was found in '${FILE}'"
+				SYSTEM_MAP_FILE=${FILE}
+				break
+			fi
+		done
+	fi
 fi
 echo "Generate \"${OUTPUT_FILE}\" for kernel \"${KERNEL_VERSION}\" and system map \"${SYSTEM_MAP_FILE}\"."
 
@@ -50,8 +62,10 @@ if [[ -r /etc/os-release ]]
 then
 	. /etc/os-release
 	DISTRIB_NAME=$(echo ${ID//[.-]/_} | awk '{print toupper($0)}')
+    echo "#ifndef DISTRIB_NAME_${DISTRIB_NAME}" >> ${OUTPUT_FILE}
 	echo "#define DISTRIB_NAME_${DISTRIB_NAME}" >> ${OUTPUT_FILE}
 	awk '{ n=split($0,v,"."); echo "n="n; for (i=0; ++i<=n;) print "#define DISTRIB_VERSION_"i" "v[i] }' <<< $VERSION_ID >> ${OUTPUT_FILE}
+    echo "#endif" >> ${OUTPUT_FILE}
 fi
 
 # try to find kernel headers files

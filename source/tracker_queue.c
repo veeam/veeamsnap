@@ -187,6 +187,12 @@ int tracker_disk_ref(struct request_queue *queue, tracker_disk_t** ptracker_disk
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
     log_tr("The disk's fops is being substituted.");
 
+    if (!ke_get_addr(KE_BLK_MQ_SUBMIT_BIO)) {
+        log_err("TBD: Kernel entry 'blk_mq_submit_bio' is not initialized.");
+        container_sl_free(&tr_disk->content);
+        return -ENOSYS;
+    }
+
     /* copy fops from original disk except submit_bio */
     tr_disk->original_fops = (struct block_device_operations *)(disk->fops);
     memcpy(&tr_disk->fops, tr_disk->original_fops, sizeof(struct block_device_operations));
@@ -215,6 +221,13 @@ int tracker_disk_ref(struct request_queue *queue, tracker_disk_t** ptracker_disk
 
     tr_disk->disk = disk;
 #else
+#if defined(VEEAMSNAP_MQ_REQUEST)
+    if (!ke_get_addr(KE_BLK_MQ_MAKE_REQUEST)) {
+        log_err("TBD: Kernel entry 'blk_mq_make_request' is not initialized.");
+        container_sl_free(&tr_disk->content);
+        return -ENOSYS;
+    }
+#endif
     tr_disk->original_make_request_fn = queue->make_request_fn;
     queue->make_request_fn = tracking_make_request;
 

@@ -21,6 +21,7 @@
 #include "tracking.h"
 #include "sparse_bitmap.h"
 #include "ctrl_sysfs.h"
+#include "kernel_entries.h"
 
 #define SECTION "main      "
 #include "log_format.h"
@@ -335,15 +336,17 @@ int __init veeamsnap_init(void)
 #if defined(DISTRIB_NAME_FEDORA)
     show_distrib_version("Fedora");
 #endif
+
 #if defined(DISTRIB_NAME_SLES) || defined(DISTRIB_NAME_SLES_SAP)
     show_distrib_version("SLES");
-#endif
-#if defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_OPENSUSE_LEAP)
+#elif defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_OPENSUSE_LEAP)
     show_distrib_version("openSUSE");
-#endif
-#if defined(DISTRIB_NAME_OPENSUSE_TUMBLEWEED)
+#elif defined(DISTRIB_NAME_OPENSUSE_TUMBLEWEED)
     show_distrib_version("openSUSE Tumbleweed");
+#elif defined(OS_RELEASE_SUSE)
+    show_distrib_version("SLES");
 #endif
+
 #if defined(DISTRIB_NAME_DEBIAN)
     show_distrib_version("Debian");
 #endif
@@ -354,8 +357,6 @@ int __init veeamsnap_init(void)
 #ifdef SNAPIMAGE_TRACER
     log_tr("Snapshot image tracing is available");
 #endif
-
-    //btreefs_enum( );
 
     page_arrays_init( );
 

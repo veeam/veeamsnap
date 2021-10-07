@@ -1,6 +1,7 @@
 // Copyright (c) Veeam Software Group GmbH
 
 #pragma once
+#include <linux/types.h>
 
 #define SUCCESS 0
 
@@ -15,6 +16,7 @@
 #define VEEAMSNAP_COMPATIBILITY_SNAPSTORE 0x0000000000000001ull
 #define VEEAMSNAP_COMPATIBILITY_BTRFS     0x0000000000000002ull
 #define VEEAMSNAP_COMPATIBILITY_MULTIDEV  0x0000000000000004ull
+#define VEEAMSNAP_COMPATIBILITY_KENTRY    0x0000000000000008ull
 //multidev
 
 struct ioctl_compatibility_flags_s {
@@ -88,6 +90,25 @@ struct ioctl_tracking_mark_dirty_blocks_s{
     };
 };
 #define IOCTL_TRACKING_MARK_DIRTY_BLOCKS _IOR(VEEAM_SNAP, 7, struct ioctl_tracking_mark_dirty_blocks_s)
+
+#define KERNEL_ENTRY_NAME_MAX 255
+struct kernel_entry_s {
+    __u64 addr;
+    const char* name;
+};
+
+struct ioctl_set_kernel_entries_s {
+    __u32 count;
+    struct kernel_entry_s* entries;
+};
+#define IOCTL_SET_KERNEL_ENTRIES    _IOW(VEEAM_SNAP, 0x8, struct ioctl_set_kernel_entries_s)
+
+struct ioctl_get_unresolved_kernel_entries_s {
+    char buf[4096];
+};
+
+#define IOCTL_GET_UNRESOLVED_KERNEL_ENTRIES    _IOR(VEEAM_SNAP, 0x9, struct ioctl_get_unresolved_kernel_entries_s)
+
 //////////////////////////////////////////////////////////////////////////
 // snapshot
 
@@ -110,7 +131,6 @@ struct ioctl_snapshot_errno_s{
     int err_code;
 };
 #define IOCTL_SNAPSHOT_ERRNO    _IOW(VEEAM_SNAP, 0x12, struct ioctl_snapshot_errno_s)
-
 
 struct ioctl_range_s{
     unsigned long long left;
