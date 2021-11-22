@@ -347,7 +347,7 @@ int ioctl_set_kernel_entries(unsigned long arg)
     kfree(name);
     if (ret)
         goto out;
-    symbols_offset = (unsigned long)(printk) - (unsigned long)entries[0].addr;
+    symbols_offset = (unsigned long)(_printk) - (unsigned long)entries[0].addr;
 
     for (inx=1; inx<param.count; inx++) {
         name = strndup_user(entries[inx].name, KERNEL_ENTRY_NAME_MAX);
