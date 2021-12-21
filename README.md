@@ -12,19 +12,15 @@ Use `sudo make install` and `make uninstall` commands to install and uninstall t
 ```bash
 sudo apt install debhelper
 cd source
-make VERSION_MAJOR=5 VERSION_MINOR=0 VERSION_REV=0 VERSION_BUILD=4318 dkms-deb-pkg
-sudo apt install ../veeamsnap_5.0.0.4318_all.deb
+make VERSION_MAJOR=5 VERSION_MINOR=0 VERSION_REV=2 VERSION_BUILD=4567 dkms-deb-pkg
+sudo apt install ../veeamsnap_5.0.2.4567_all.deb
 ```
 Variables allow you to set any package version number. The package version must match the version of the veeam package you are using.
 
 ## Compatibility
-This module supports Linux kernels from 2.6.32 to 5.8.
+This module supports Linux kernels from 2.6.32 to 5.16-rc6.
 
 There are some problems with BFQ up to 5.2
-
-Experimental supports for 5.14 kernel.
-
-For kernels 5.9 and later [blk_interposer](./blk_interposer/README.md) is recommended, but not mandatory.
 
 ## How to use
 For more information, please visit:
