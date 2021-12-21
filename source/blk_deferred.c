@@ -253,7 +253,7 @@ sector_t _blk_deferred_submit_pages(
         nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
     }
 
-#ifdef bio_set_dev
+#if defined(bio_set_dev) || defined(VEEAMSNAP_FUNC_BIO_SET_DEV)
     bio_set_dev(bio, blk_dev);
 #else
     bio->bi_bdev = blk_dev;
@@ -302,15 +302,12 @@ sector_t _blk_deferred_submit_pages(
 
     ((dio_bio_complete_t*)bio->bi_private)->dio_req = dio_req;
     ((dio_bio_complete_t*)bio->bi_private)->bio_sect_len = process_sect;
-#ifdef HAVE_BLK_INTERPOSER
-    submit_bio_noacct(bio);
-#else
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
     submit_bio( direction, bio );
 #else
     submit_bio( bio );
 #endif
-#endif
+
     return process_sect;
 }
 

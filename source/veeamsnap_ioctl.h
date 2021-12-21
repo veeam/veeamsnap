@@ -92,6 +92,8 @@ struct ioctl_tracking_mark_dirty_blocks_s{
 #define IOCTL_TRACKING_MARK_DIRTY_BLOCKS _IOR(VEEAM_SNAP, 7, struct ioctl_tracking_mark_dirty_blocks_s)
 
 #define KERNEL_ENTRY_NAME_MAX 255
+#define KERNEL_ENTRY_BASE_FUNCTION __request_module
+#define KERNEL_ENTRY_BASE_NAME "__request_module"
 struct kernel_entry_s {
     __u64 addr;
     const char* name;

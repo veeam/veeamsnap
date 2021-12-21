@@ -210,7 +210,7 @@ __reprocess_bv:
                 res = -ENOMEM;
                 goto __fail_out;
             }
-#ifdef bio_set_dev
+#if defined(bio_set_dev) || defined(VEEAMSNAP_FUNC_BIO_SET_DEV)
             bio_set_dev(new_bio, blk_dev);
 #else
             new_bio->bi_bdev = blk_dev;
@@ -308,14 +308,10 @@ void blk_dev_redirect_submit( blk_redirect_bio_endio_t* rq_endio )
     rq_endio->bio_endio_head_rec = NULL;
 
     while (curr != NULL){
-#ifdef HAVE_BLK_INTERPOSER
-        submit_bio_noacct(curr->this);
-#else
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
         submit_bio( bio_data_dir( rq_endio->bio ), curr->this );
 #else
         submit_bio( curr->this );
-#endif
 #endif
         curr = curr->next;
     }

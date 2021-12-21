@@ -7,7 +7,11 @@
 #endif
 
 #ifdef VEEAMSNAP_DISK_SUBMIT_BIO
+#ifdef VEEAMSNAP_VOID_SUBMIT_BIO
+typedef void (make_request_fn) (struct bio* bio);
+#else
 typedef blk_qc_t (make_request_fn) (struct bio *bio);
+#endif
 #endif
 
 typedef struct _tracker_disk_s
@@ -15,12 +19,8 @@ typedef struct _tracker_disk_s
     content_sl_t content;
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
     struct gendisk *disk;
-#ifdef HAVE_BLK_INTERPOSER
-    struct blk_interposer interposer;
-#else
     struct block_device_operations fops;
     struct block_device_operations* original_fops;
-#endif
 #else
     make_request_fn* original_make_request_fn;
     struct request_queue *queue;
@@ -43,21 +43,6 @@ int tracker_disk_find(struct request_queue *q, tracker_disk_t** ptracker_disk);
 void tracker_disk_unref(tracker_disk_t* ptracker_disk);
 
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-
-static inline void blk_disk_freeze(struct gendisk *disk)
-{
-    blk_mq_freeze_queue(disk->queue);
-    blk_mq_quiesce_queue(disk->queue);
-}
-static inline void blk_disk_unfreeze(struct gendisk *disk)
-{
-    blk_mq_unquiesce_queue(disk->queue);
-    blk_mq_unfreeze_queue(disk->queue);
-}
-
-#endif
-
-#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 #include "kernel_entries.h"
 
 static inline make_request_fn * tracker_disk_get_original_make_request(tracker_disk_t* tr_disk)
@@ -67,8 +52,13 @@ static inline make_request_fn * tracker_disk_get_original_make_request(tracker_d
 
     /* prevents distortion of q_usage_counter counter in blk_queue_exit() */
     percpu_ref_get(&tr_disk->disk->queue->q_usage_counter);
+#ifdef VEEAMSNAP_VOID_SUBMIT_BIO
+    return (void(*)(struct bio*))
+        ke_get_addr(KE_BLK_MQ_SUBMIT_BIO);
+#else
     return (blk_qc_t(*)(struct bio *))
         ke_get_addr(KE_BLK_MQ_SUBMIT_BIO);
+#endif
 }
 
 #elif defined(VEEAMSNAP_MQ_REQUEST)

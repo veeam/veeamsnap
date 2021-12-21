@@ -776,7 +776,7 @@ int cbt_persistent_init(const char* cbtdata)
     cbt_notify_init();
 
 	if (cbtdata == NULL) {
-		log_warn("Persistent CBT parameters are not set");
+		log_tr("Persistent CBT parameters are not set");
 		return ENODATA;
 	}
 

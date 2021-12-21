@@ -130,9 +130,7 @@ struct bio_set* blk_bioset_create(unsigned int front_pad)
 }
 #endif
 
-#if defined(HAVE_BLK_INTERPOSER)
-/* do nothing */
-#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 
 #if defined(CONFIG_X86)
 // page protection hack

@@ -46,9 +46,7 @@ static inline void defer_io_put_resource( defer_io_t* defer_io )
 {
     shared_resource_put( &defer_io->sharing_header );
 }
-#ifdef HAVE_BLK_INTERPOSER
-int defer_io_redirect_bio(defer_io_t* defer_io, struct bio *bio, sector_t sectStart, sector_t sectCount, void* tracker);
-#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 int defer_io_redirect_bio( defer_io_t* defer_io, struct bio *bio, sector_t sectStart, sector_t sectCount,
         make_request_fn* target_make_request_fn, void* tracker );
 #else

@@ -141,7 +141,7 @@ int _dev_direct_submit_pages(
     }
     bio_compl = (blk_direct_bio_complete_t*)bb->bi_private;
 
-#ifdef bio_set_dev
+#if defined(bio_set_dev) || defined(VEEAMSNAP_FUNC_BIO_SET_DEV)
     bio_set_dev(bb, blkdev);
 #else
     bb->bi_bdev = blkdev;
@@ -179,14 +179,10 @@ int _dev_direct_submit_pages(
         process_sect += bvec_len_sect;
     }
 
-#ifdef HAVE_BLK_INTERPOSER
-    submit_bio_noacct(bb);
-#else
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
     submit_bio( direction, bb );
 #else
     submit_bio( bb );
-#endif
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
@@ -242,7 +238,7 @@ int blk_direct_submit_page( struct block_device* blkdev, int direction, sector_t
     bio_compl = (blk_direct_bio_complete_t*)bb->bi_private;
 
     BUG_ON(blkdev == NULL);
-#ifdef bio_set_dev
+#if defined(bio_set_dev) || defined(VEEAMSNAP_FUNC_BIO_SET_DEV)
     bio_set_dev(bb, blkdev);
 #else
     bb->bi_bdev = blkdev;
@@ -268,14 +264,10 @@ int blk_direct_submit_page( struct block_device* blkdev, int direction, sector_t
 
     BUG_ON(pg == NULL);
     if (0 != bio_add_page( bb, pg, PAGE_SIZE, 0 )){
-#ifdef HAVE_BLK_INTERPOSER
-        submit_bio_noacct(bb);
-#else
 #ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
         submit_bio( bb->bi_rw, bb );
 #else
         submit_bio( bb );
-#endif
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)

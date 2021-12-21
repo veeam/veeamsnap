@@ -335,19 +335,21 @@ int ioctl_set_kernel_entries(unsigned long arg)
         goto out;
     }
 
-    // First entry should be printk
+    // check first entry 
     name = strndup_user(entries[0].name, KERNEL_ENTRY_NAME_MAX);
     if (IS_ERR(name)) {
         log_err("Unable to set kernel entries: invalid user buffer");
         ret = PTR_ERR(name);
         goto out;
     }
-    if (strcmp(name, "printk") != 0)
+    if (strcmp(name, KERNEL_ENTRY_BASE_NAME) != 0)
         ret = -EINVAL;
     kfree(name);
-    if (ret)
+    if (ret) {
+        log_err_s("Invalid first kernel entry: ", name);
         goto out;
-    symbols_offset = (unsigned long)(printk) - (unsigned long)entries[0].addr;
+    }
+    symbols_offset = (unsigned long)(KERNEL_ENTRY_BASE_FUNCTION) - (unsigned long)entries[0].addr;
 
     for (inx=1; inx<param.count; inx++) {
         name = strndup_user(entries[inx].name, KERNEL_ENTRY_NAME_MAX);
@@ -357,6 +359,7 @@ int ioctl_set_kernel_entries(unsigned long arg)
             break;
         }
 
+        log_tr_s("Set address for function ", name);
         ret = ke_set_addr(name, (void *)(entries[inx].addr + symbols_offset));
         kfree(name);
         if (ret)
@@ -364,7 +367,7 @@ int ioctl_set_kernel_entries(unsigned long arg)
     }
 
 out:
-    kfree(entries);
+    dbg_kfree(entries);
     return ret;
 }
 
@@ -392,7 +395,7 @@ int ioctl_get_unresolved_kernel_entries(unsigned long arg)
         ret = -ENODATA;
     }
 out:
-    kfree(param);
+    dbg_kfree(param);
     return ret;
 }
 

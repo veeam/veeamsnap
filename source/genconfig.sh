@@ -33,7 +33,7 @@ then
 else
 	if [ -n "${KERNEL_VERSION}" ]
 	then
-		FILES=( "/lib/modules/${KERNEL_VERSION}/System.map" "/boot/System.map-${KERNEL_VERSION}" "/usr/lib/debug/boot/System.map-${KERNEL_VERSION}" )
+		FILES=( "/lib/modules/${KERNEL_VERSION}/System.map" "/boot/System.map-${KERNEL_VERSION}" )
 		for FILE in ${FILES[@]}
 		do
 			if [ -f ${FILE} ]
@@ -52,7 +52,7 @@ else
 		done
 	fi
 fi
-echo "Generate \"${OUTPUT_FILE}\" for kernel \"${KERNEL_VERSION}\" and system map \"${SYSTEM_MAP_FILE}\"."
+echo "Generate \"${OUTPUT_FILE}\" for kernel \"${KERNEL_VERSION}\"."
 
 echo "// Copyright (c) Veeam Software Group GmbH" > ${OUTPUT_FILE}
 echo "#ifndef VEEAM_CONFIG" >> ${OUTPUT_FILE}
@@ -93,6 +93,8 @@ fi
 # parses the system map and check exported symbols
 if [ -n "${SYSTEM_MAP_FILE}" ]
 then
+	echo "System map \"${SYSTEM_MAP_FILE}\"."
+
 	SYMBOLS="blk_mq_make_request blk_alloc_queue_rh submit_bio_noacct"
 	for SYMBOL_NAME in ${SYMBOLS}
 	do
@@ -108,7 +110,17 @@ then
 	done
 
 	# parses the system map and determines the addresses for some non-exported functions
-	SYMBOLS="printk blk_mq_submit_bio"
+	KERNEL_ENTRY_BASE_NAME="__request_module"
+	KERNEL_ENTRY_BASE_ADDR=$(grep " ${KERNEL_ENTRY_BASE_NAME}$" "${SYSTEM_MAP_FILE}" | awk '{print $1}')
+	if [ -z "${KERNEL_ENTRY_BASE_ADDR}" ]
+	then
+		echo "Function \"${KERNEL_ENTRY_BASE_NAME}\" not found"
+	else
+		echo "#define KERNEL_ENTRY_BASE_ADDR 0x${KERNEL_ENTRY_BASE_ADDR}" >> ${OUTPUT_FILE}
+		echo "Address of the function \"${KERNEL_ENTRY_BASE_NAME}\" was defined"
+	fi
+
+	SYMBOLS="blk_mq_submit_bio"
 	for SYMBOL_NAME in ${SYMBOLS}
 	do
 		SYMBOL_ADDR=$(grep " ${SYMBOL_NAME}$" "${SYSTEM_MAP_FILE}" | awk '{print $1}')

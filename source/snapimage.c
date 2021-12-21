@@ -441,7 +441,9 @@ int _snapimage_compat_ioctl( struct block_device *bdev, fmode_t mode, unsigned c
 }
 #endif
 
-#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+#ifdef VEEAMSNAP_VOID_SUBMIT_BIO
+void _snapimage_submit_bio(struct bio* bio);
+#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 blk_qc_t _snapimage_submit_bio(struct bio *bio);
 #endif
 
@@ -565,19 +567,25 @@ int snapimage_processor_waiting( snapimage_t *image )
 
 int snapimage_processor_thread( void *data )
 {
-
+    int res;
     snapimage_t *image = data;
 
     log_tr_format( "Snapshot image thread for device [%d:%d] start", MAJOR( image->image_dev ), MINOR( image->image_dev ) );
-
+#ifdef VEEAMSNAP_INT_ADD_DISK
+    res = add_disk(image->disk);
+    if (res) {
+        log_err_d("Failed to add snapshot image disk. errno=", res);
+        return res;
+    }
+#else
     add_disk( image->disk );
-
+#endif
     //priority
     set_user_nice( current, -20 ); //MIN_NICE
 
     while ( !kthread_should_stop( ) )
     {
-        int res = snapimage_processor_waiting( image );
+        res = snapimage_processor_waiting( image );
         if (res == SUCCESS){
             if (!queue_sl_empty( image->rq_proc_queue ))
                 _snapimage_processing( image );
@@ -641,7 +649,12 @@ void _snapimage_make_request( struct request_queue *q, struct bio *bio )
 {
 
 #elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+
+#if defined(VEEAMSNAP_VOID_SUBMIT_BIO)
+void _snapimage_submit_bio(struct bio* bio)
+#else
 blk_qc_t _snapimage_submit_bio(struct bio *bio)
+#endif
 {
 #ifdef VEEAMSNAP_BDEV_BIO
     struct request_queue *q = bio->bi_bdev->bd_disk->queue;
@@ -655,7 +668,9 @@ blk_qc_t _snapimage_make_request(struct request_queue *q, struct bio *bio)
 
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION( 4, 4, 0 )
+#if defined(VEEAMSNAP_VOID_SUBMIT_BIO)
+    //no result
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION( 4, 4, 0 )
     blk_qc_t result = BLK_QC_T_NONE;
 #else
 
@@ -676,7 +691,9 @@ blk_qc_t _snapimage_make_request(struct request_queue *q, struct bio *bio)
         log_tr_lx( "Failed to make snapshot image request. Queue already is not active. Queue flags=", q->queue_flags );
         _snapimage_bio_complete( bio, -ENODEV );
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 4, 0 )
+#if defined(VEEAMSNAP_VOID_SUBMIT_BIO)
+        return;
+#elif LINUX_VERSION_CODE < KERNEL_VERSION( 4, 4, 0 )
 
 #ifdef HAVE_MAKE_REQUEST_INT
         return result;
@@ -745,7 +762,9 @@ blk_qc_t _snapimage_make_request(struct request_queue *q, struct bio *bio)
     }while (false);
     atomic_dec( &image->own_cnt );
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION( 4, 4, 0 )
+#if defined(VEEAMSNAP_VOID_SUBMIT_BIO)
+    return;
+#elif LINUX_VERSION_CODE < KERNEL_VERSION( 4, 4, 0 )
 
 #ifdef HAVE_MAKE_REQUEST_INT
     return result;

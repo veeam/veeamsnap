@@ -14,72 +14,6 @@
 #define SECTION "tracking  "
 #include "log_format.h"
 
-#ifdef HAVE_BLK_INTERPOSER
-/**
- * tracking_submit_bio() - Intercept bio by blk_interposer
- */
-bool tracking_submit_bio(struct bio *bio)
-{
-    bool was_catched = false;
-
-    tracker_disk_t* tr_disk = NULL;
-    snapdata_collector_t* collector = NULL;
-    tracker_t* tracker = NULL;
-
-    bio_get(bio);
-    tr_disk = container_of(bio->bi_disk->interposer, tracker_disk_t, interposer);
-
-    if (SUCCESS == tracker_find_by_queue_and_sector(tr_disk, bio_bi_sector(bio), &tracker)) {
-        sector_t sectStart = (bio_bi_sector(bio) - blk_dev_get_start_sect( tracker->target_dev ));
-        sector_t sectCount = sector_from_size( bio_bi_size(bio) );
-
-        if (op_is_write(bio_op(bio))) {// only write request processed
-#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-            if (SUCCESS == snapdata_collect_Find(bio, &collector))
-#else
-            if (SUCCESS == snapdata_collect_Find(bio, tr_disk->queue, &collector))
-#endif
-                snapdata_collect_Process(collector, bio);
-        }
-
-        if ((bio->bi_end_io != blk_direct_bio_endio) &&
-            (bio->bi_end_io != blk_redirect_bio_endio) &&
-            (bio->bi_end_io != blk_deferred_bio_endio)) {
-
-            if (tracker->is_unfreezable)
-                down_read(&tracker->unfreezable_lock);
-
-            if (atomic_read(&tracker->is_captured)) {
-                // do copy-on-write
-                int res = defer_io_redirect_bio(tracker->defer_io, bio, sectStart, sectCount, tracker);
-                if (SUCCESS == res)
-                    was_catched = true;
-            }
-
-            if (tracker->is_unfreezable)
-                up_read(&tracker->unfreezable_lock);
-        }
-
-        if (!was_catched) {
-            bool cbt_locked = false;
-
-            if (tracker && bio_data_dir(bio) && bio_has_data(bio)) {
-                cbt_locked = tracker_cbt_bitmap_lock(tracker);
-                if (cbt_locked)
-                    tracker_cbt_bitmap_set(tracker, sectStart, sectCount);
-            }
-            if (cbt_locked)
-                tracker_cbt_bitmap_unlock(tracker);
-        }
-    }
-
-    bio_put(bio);
-
-    return was_catched;
-}
-
-#else //HAVE_BLK_INTERPOSER
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
 static inline void tracking_original_make_request(tracker_disk_t* tr_disk, struct request_queue *q, struct bio *bio)
 {
@@ -93,16 +27,26 @@ static inline void tracking_original_make_request(tracker_disk_t* tr_disk, struc
     fn(q, bio);
 }
 #else
+#ifdef VEEAMSNAP_VOID_SUBMIT_BIO
+static inline void tracking_original_make_request(tracker_disk_t* tr_disk, struct bio* bio)
+#else
 static inline blk_qc_t tracking_original_make_request(tracker_disk_t* tr_disk, struct bio *bio)
+#endif
 {
     make_request_fn* fn = tracker_disk_get_original_make_request(tr_disk);
 
     if (!fn) {
         log_err("Invalid original bio processing function");
         bio_io_error(bio);
+#ifdef VEEAMSNAP_VOID_SUBMIT_BIO
+        return;
+#else
         return BLK_QC_T_NONE;
+#endif
     }
-#ifdef VEEAMSNAP_DISK_SUBMIT_BIO
+#ifdef VEEAMSNAP_VOID_SUBMIT_BIO
+    fn(bio);
+#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
     return fn(bio);
 #else
     return fn(tr_disk->queue, bio);
@@ -120,15 +64,16 @@ void tracking_make_request(struct request_queue *q, struct bio *bio)
 {
 #endif
 
-#else
-
-#ifdef VEEAMSNAP_DISK_SUBMIT_BIO
+#elif defined(VEEAMSNAP_VOID_SUBMIT_BIO)
+void tracking_make_request(struct bio* bio)
+{
+#elif defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 blk_qc_t tracking_make_request(struct bio *bio )
 {
+    blk_qc_t result = BLK_QC_T_NONE;
 #else
 blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 {
-#endif
     blk_qc_t result = BLK_QC_T_NONE;
 #endif
 
@@ -216,6 +161,8 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
                     tracking_original_make_request(tr_disk, q, bio);
+#elif defined(VEEAMSNAP_VOID_SUBMIT_BIO)
+                    tracking_original_make_request(tr_disk, bio);
 #else
                     result = tracking_original_make_request(tr_disk, bio);
 #endif
@@ -234,6 +181,8 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
                 }
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
                 tracking_original_make_request(tr_disk, q, bio);
+#elif defined(VEEAMSNAP_VOID_SUBMIT_BIO)
+                tracking_original_make_request(tr_disk, bio);
 #else
                 result = tracking_original_make_request(tr_disk, bio);
 #endif
@@ -243,6 +192,8 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
         }else{
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
             tracking_original_make_request(tr_disk, q, bio);
+#elif defined(VEEAMSNAP_VOID_SUBMIT_BIO)
+            tracking_original_make_request(tr_disk, bio);
 #else
             result = tracking_original_make_request(tr_disk, bio);
 #endif
@@ -261,12 +212,13 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
     return 0;
 #endif
 
+#elif defined(VEEAMSNAP_VOID_SUBMIT_BIO)
+    return;
 #else
     return result;
 #endif
 }
 
-#endif //HAVE_BLK_INTERPOSER
 
 int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long long snapshot_id)
 {

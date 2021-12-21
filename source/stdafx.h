@@ -34,11 +34,6 @@
 # ifndef VEEAMSNAP_DISK_SUBMIT_BIO
 #  define VEEAMSNAP_DISK_SUBMIT_BIO
 # endif
-# if defined(blk_has_interposer)
-#  ifndef HAVE_BLK_INTERPOSER
-#   define HAVE_BLK_INTERPOSER
-#  endif
-# endif
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
@@ -57,6 +52,23 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0)
 # ifndef VEEAMSNAP_BLK_ALLOC_DISK
 #  define VEEAMSNAP_BLK_ALLOC_DISK
+# endif
+#endif
+
+/* Since kernel 5.15 the add_disk() has result */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
+# ifndef VEEAMSNAP_INT_ADD_DISK
+#  define VEEAMSNAP_INT_ADD_DISK
+# endif
+#endif
+
+/* Since kernel 5.16 the submit_bio() has no result */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,16,0)
+# ifndef VEEAMSNAP_VOID_SUBMIT_BIO
+#  define VEEAMSNAP_VOID_SUBMIT_BIO
+# endif
+# ifndef VEEAMSNAP_FUNC_BIO_SET_DEV
+#  define VEEAMSNAP_FUNC_BIO_SET_DEV
 # endif
 #endif
 
