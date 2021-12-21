@@ -9,7 +9,7 @@ Type "make all" command to compile the module.
 Use "make load" and "make unload" commands to load and unload the module.
 
 ## Compatibility 
-This module supports Linux kernels from 2.6.32 to 5.13.
+This module supports Linux kernels from 2.6.32 to 5.16-rc6.
 
 There are some problems with BFQ up to 5.2
 
