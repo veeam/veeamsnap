@@ -112,7 +112,6 @@ int blk_dev_get_info( dev_t dev_id, blk_dev_info_t* pdev_info )
     return result;
 }
 
-
 #ifdef VEEAMSNAP_BLK_FREEZE
 int blk_freeze_bdev( dev_t dev_id, struct block_device* device, struct super_block** psuperblock )
 {

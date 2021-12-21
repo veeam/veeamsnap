@@ -425,10 +425,6 @@ int _tracker_capture_snapshot( tracker_t* tracker )
         return result;
     }
 
-#ifdef HAVE_BLK_INTERPOSER
-    blk_disk_freeze(tracker->target_dev->bd_disk);
-#endif
-
     tracker->defer_io = defer_io_get_resource( defer_io );
 
     atomic_set( &tracker->is_captured, true );
@@ -441,10 +437,6 @@ int _tracker_capture_snapshot( tracker_t* tracker )
         log_tr_format( "Snapshot captured for device [%d:%d]. New snap number %ld",
             MAJOR( tracker->original_dev_id ), MINOR( tracker->original_dev_id ), tracker->cbt_map->snap_number_active );
     }
-
-#ifdef HAVE_BLK_INTERPOSER
-    blk_disk_unfreeze(tracker->target_dev->bd_disk);
-#endif
 
     return 0;
 
@@ -541,6 +533,10 @@ int _tracker_release_snapshot( tracker_t* tracker )
 #endif
     defer_io_t* defer_io = tracker->defer_io;
 
+    if (!tracker->defer_io) {
+        log_err_dev_t( "Tracker is already released for device ", tracker->original_dev_id);
+        return SUCCESS;
+    }
 
     if (tracker->is_unfreezable)
         down_write(&tracker->unfreezable_lock);
@@ -552,18 +548,10 @@ int _tracker_release_snapshot( tracker_t* tracker )
 #endif
     }
 
-#ifdef HAVE_BLK_INTERPOSER
-    blk_disk_freeze(tracker->target_dev->bd_disk);
-#endif
-
     //clear freeze flag
     atomic_set(&tracker->is_captured, false);
 
     tracker->defer_io = NULL;
-
-#ifdef HAVE_BLK_INTERPOSER
-    blk_disk_unfreeze(tracker->target_dev->bd_disk);
-#endif
 
     if (tracker->is_unfreezable)
         up_write(&tracker->unfreezable_lock);

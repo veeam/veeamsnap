@@ -66,7 +66,7 @@ void enum_block_print_state(void )
 
     {
 //         struct device *dev = NULL;
-// 
+//
 //         //struct uuidcmp cmp;
 //         dev = class_find_device(&_block_class, NULL, NULL/* &cmp */, &match_dev_by_uuid);
 //         if (!dev)

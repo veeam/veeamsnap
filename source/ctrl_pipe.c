@@ -317,7 +317,7 @@ ssize_t ctrl_pipe_command_initiate( ctrl_pipe_t* pipe, const char __user *buffer
     } while (false);
     dbg_kfree( kernel_buffer );
     ctrl_pipe_request_acknowledge( pipe, result );
-    
+
     if (result == SUCCESS)
         return processed;
     return result;

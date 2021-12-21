@@ -11,15 +11,15 @@ struct kernel_entry {
 static struct kernel_entry ke_addr_table[KE_SIZE] = {
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
     { "blk_mq_submit_bio",
-#if defined(PRINTK_ADDR) && defined(KE_BLK_MQ_SUBMIT_BIO)
-      (void *)(BLK_MQ_SUBMIT_BIO_ADDR + ((unsigned long)(printk)-PRINTK_ADDR)) },
+#if defined(KERNEL_ENTRY_BASE_ADDR) && defined(KE_BLK_MQ_SUBMIT_BIO)
+      (void *)(BLK_MQ_SUBMIT_BIO_ADDR + ((unsigned long)(KERNEL_ENTRY_BASE_FUNCTION)-KERNEL_ENTRY_BASE_ADDR)) },
 #else
       NULL },
 #endif
 #elif defined(VEEAMSNAP_MQ_REQUEST)
     { "blk_mq_make_request",
-#if defined(PRINTK_ADDR) && defined(BLK_MQ_MAKE_REQUEST_ADDR)
-      (void *)(BLK_MQ_MAKE_REQUEST_ADDR + ((unsigned long)(printk)-PRINTK_ADDR)) },
+#if defined(KERNEL_ENTRY_BASE_ADDR) && defined(BLK_MQ_MAKE_REQUEST_ADDR)
+      (void *)(BLK_MQ_MAKE_REQUEST_ADDR + ((unsigned long)(KERNEL_ENTRY_BASE_FUNCTION)-KERNEL_ENTRY_BASE_ADDR)) },
 #else
       NULL },
 #endif

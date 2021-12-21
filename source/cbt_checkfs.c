@@ -49,7 +49,7 @@ static int _check_unmount_status(struct block_device* blk_dev, uint32_t* p_check
     int res;
 
     // check EXT4 fs
-#ifdef DEBUG_CBT_LOAD 
+#ifdef DEBUG_CBT_LOAD
     sb_crc = DEBUG_CBT_LOAD;
     res = SUCCESS;
 #else
@@ -105,7 +105,7 @@ void cbt_checkfs_status_set(cbt_checkfs_status_t* checkfs_status, dev_t dev_id, 
     int len = strlen(message);
     checkfs_status->dev_id = dev_id;
     checkfs_status->errcode = errcode;
-     
+
     memcpy(checkfs_status->message_text, message, len);
     checkfs_status->message_text[len] = '\0';
     ++len;

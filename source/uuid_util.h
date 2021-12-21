@@ -43,6 +43,6 @@ static inline void veeam_generate_random_uuid( unsigned char uuid[UUID_SIZE] )
 #define veeam_generate_random_uuid generate_random_uuid
 
 
-#endif 
+#endif
 
 

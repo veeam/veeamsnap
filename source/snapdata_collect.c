@@ -122,13 +122,34 @@ int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicU
     return res;
 }
 
-
 void _collector_stop( snapdata_collector_t* collector )
 {
-    if (collector->tr_disk != NULL){
-        tracker_disk_unref( collector->tr_disk );
-        collector->tr_disk = NULL;
-    }
+    int res;
+#ifdef VEEAMSNAP_BLK_FREEZE
+    struct super_block* sb = NULL;
+#endif
+
+    if (!collector->tr_disk)
+        return;
+
+#ifdef VEEAMSNAP_BLK_FREEZE
+    res = blk_freeze_bdev(collector->dev_id, collector->device, &sb);
+#else
+    res = freeze_bdev(collector->device);
+#endif
+    if (res != SUCCESS)
+        log_err("Failed to treeze block device");
+
+    tracker_disk_unref( collector->tr_disk );
+    collector->tr_disk = NULL;
+
+#ifdef VEEAMSNAP_BLK_FREEZE
+    sb = blk_thaw_bdev(collector->dev_id, collector->device, sb);
+#else
+    res = thaw_bdev(collector->device);
+    if (res != SUCCESS)
+        log_err("Failed to thaw block device");
+#endif
 }
 
 

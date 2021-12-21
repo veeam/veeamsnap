@@ -212,8 +212,18 @@ int snapshot_Create( dev_t* dev_id_set, unsigned int dev_id_set_size, unsigned i
 
     log_tr( "Create snapshot for devices:" );
     for (inx = 0; inx < dev_id_set_size; ++inx){
+        unsigned int j;
+
         dev_t dev_id = dev_id_set[inx];
         log_tr_format( "\t%d:%d", MAJOR( dev_id ), MINOR( dev_id ) );
+
+        for (j = inx + 1; j < dev_id_set_size; ++j) {
+            if (dev_id == dev_id_set[j]) {
+                log_err_format("The same device [%d:%d] was added twice.",
+                    MAJOR(dev_id), MINOR(dev_id));
+                return -EINVAL;
+            }
+        }
     }
     result = _snapshot_New( dev_id_set, dev_id_set_size, &snapshot );
     if (result != SUCCESS){
