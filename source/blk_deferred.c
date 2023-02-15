@@ -162,20 +162,42 @@ void blk_deferred_bio_free( struct bio* bio )
 }
 #endif
 
-struct bio* _blk_deferred_bio_alloc( int nr_iovecs )
+#ifdef HAVE_BDEV_BIO_ALLOC
+static struct bio* _blk_deferred_bio_alloc(struct block_device* blkdev, int direction, int nr_iovecs)
 {
-    struct bio* new_bio = bio_alloc_bioset( GFP_NOIO, nr_iovecs, BlkDeferredBioset );
-    if (new_bio){
-        new_bio->bi_end_io = blk_deferred_bio_endio;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)
-        new_bio->bi_destructor = blk_deferred_bio_free;
-#endif
-        new_bio->bi_private = ((void*)new_bio) - sizeof( dio_bio_complete_t );
-    }
-    return new_bio;
+    unsigned int opf;
+
+    if (direction == READ)
+        opf = REQ_OP_READ;
+    else if (direction == WRITE)
+        opf = REQ_OP_WRITE;
+
+    return bio_alloc_bioset(blkdev, nr_iovecs, opf, GFP_NOIO, BlkDeferredBioset);
 }
+#else
+static struct bio* _blk_deferred_bio_alloc(struct block_device* blkdev, int direction, int nr_iovecs)
+{
+    struct bio* bio = bio_alloc_bioset( GFP_NOIO, nr_iovecs, BlkDeferredBioset );
+    if (!bio)
+        return NULL;
 
+#if defined(bio_set_dev) || defined(VEEAMSNAP_FUNC_BIO_SET_DEV)
+    bio_set_dev(bio, blkdev);
+#else
+    bio->bi_bdev = blkdev;
+#endif
 
+#ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
+    bio->bi_rw = direction;
+#else
+    if (direction == READ)
+        bio_set_op_attrs(bio, REQ_OP_READ, 0);
+    else
+        bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
+#endif
+    return bio;
+}
+#endif //HAVE_BDEV_BIO_ALLOC
 
 void blk_deferred_complete( blk_deferred_request_t* dio_req, sector_t portion_sect_cnt, int result )
 {
@@ -243,7 +265,7 @@ sector_t _blk_deferred_submit_pages(
 
     nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
 
-    while (NULL == (bio = _blk_deferred_bio_alloc( nr_iovecs ))){
+    while (NULL == (bio = _blk_deferred_bio_alloc(blk_dev, direction, nr_iovecs))){
         //log_tr_d( "Failed to allocate bio for defer IO. nr_iovecs=", nr_iovecs );
 
         size_sector = (size_sector >> 1) & ~(SECTORS_IN_PAGE - 1);
@@ -252,21 +274,12 @@ sector_t _blk_deferred_submit_pages(
         }
         nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
     }
-
-#if defined(bio_set_dev) || defined(VEEAMSNAP_FUNC_BIO_SET_DEV)
-    bio_set_dev(bio, blk_dev);
-#else
-    bio->bi_bdev = blk_dev;
+    bio->bi_end_io = blk_deferred_bio_endio;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)
+    bio->bi_destructor = blk_deferred_bio_free;
 #endif
+    bio->bi_private = ((void*)bio) - sizeof(dio_bio_complete_t);
 
-#ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
-    bio->bi_rw = direction;
-#else
-    if (direction == READ)
-        bio_set_op_attrs( bio, REQ_OP_READ, 0 );
-    else
-        bio_set_op_attrs( bio, REQ_OP_WRITE, 0 );
-#endif
     bio_bi_sector( bio ) = ofs_sector;
 
     {//add first

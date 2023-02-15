@@ -265,7 +265,7 @@ int defer_io_create( dev_t dev_id, struct block_device* blk_dev, defer_io_t** pp
         //    break;
         //}
 
-        defer_io->dio_thread = kthread_create( defer_io_work_thread, (void *)defer_io, "veeamdeferio%d:%d", MAJOR( dev_id ), MINOR( dev_id ) );
+        defer_io->dio_thread = kthread_create( defer_io_work_thread, (void *)defer_io, "veeamdeferio%d_%d", MAJOR( dev_id ), MINOR( dev_id ) );
         if (IS_ERR( defer_io->dio_thread )) {
             res = PTR_ERR( defer_io->dio_thread );
             log_err_d( "Unable to create defer IO processor: failed to create thread. errno=", res );

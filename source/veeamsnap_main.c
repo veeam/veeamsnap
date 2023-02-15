@@ -34,9 +34,91 @@
 #include <linux/reboot.h>       //use old methon
 //#include <linux/syscore_ops.h>    //more modern method
 
+#if defined(DISTRIB_NAME_RHEL)
+#pragma message "distributive: RHEL"
+#endif
+#if defined(DISTRIB_NAME_CENTOS)
+#pragma message "distributive: CentOS"
+#endif
+#if defined(DISTRIB_NAME_OL)
+#pragma message "distributive: Oracle"
+#endif
+#if defined(DISTRIB_NAME_FEDORA)
+#pragma message "distributive: Fedora"
+#endif
+
+#if defined(DISTRIB_NAME_SLES) || defined(DISTRIB_NAME_SLES_SAP)
+#pragma message "distributive: SLES"
+#elif defined(DISTRIB_NAME_OPENSUSE) || defined(DISTRIB_NAME_OPENSUSE_LEAP)
+#pragma message "distributive: openSUSE"
+#elif defined(DISTRIB_NAME_OPENSUSE_TUMBLEWEED)
+#pragma message "distributive: openSUSE Tumbleweed"
+#elif defined(OS_RELEASE_SUSE)
+#pragma message "distributive: SLES"
+#endif
+
+#if defined(DISTRIB_NAME_DEBIAN)
+#pragma message "distributive: Debian"
+#endif
+#if defined(DISTRIB_NAME_UBUNTU)
+#pragma message "distributive: Ubuntu"
+#endif
+
+#ifdef OS_RELEASE_SUSE
+#pragma message "OS_RELEASE_SUSE defined" 
+#endif
+
+#ifdef  HAVE_MAKE_REQUEST_INT
+#pragma message "HAVE_MAKE_REQUEST_INT defined"
+#endif
+
+#ifdef VEEAMSNAP_MQ_IO
+#pragma message "VEEAMSNAP_MQ_IO defined"
+#endif
+
+#ifdef VEEAMSNAP_MQ_REQUEST
+#pragma message "VEEAMSNAP_MQ_REQUEST defined"
+#endif
+
+#ifdef VEEAMSNAP_DISK_SUBMIT_BIO
+#pragma message "VEEAMSNAP_DISK_SUBMIT_BIO defined"
+#endif
+
+#ifdef VEEAMSNAP_BLK_FREEZE
+#pragma message "VEEAMSNAP_BLK_FREEZE defined"
+#endif
+
+#ifdef VEEAMSNAP_BDEV_BIO
+#pragma message "VEEAMSNAP_BDEV_BIO defined"
+#endif
+
+#ifdef VEEAMSNAP_BLK_ALLOC_DISK
+#pragma message "VEEAMSNAP_BLK_ALLOC_DISK defined"
+#endif
+
+#ifdef VEEAMSNAP_VOID_SUBMIT_BIO
+#pragma message "VEEAMSNAP_VOID_SUBMIT_BIO defined"
+#endif
+
+#ifdef VEEAMSNAP_FUNC_BIO_SET_DEV
+#pragma message "VEEAMSNAP_FUNC_BIO_SET_DEV defined"
+#endif
 
 #ifndef PERSISTENT_CBT
 #pragma message "Persistent CBT is not supported for this system"
+#endif
+
+#ifdef HAVE_GENHD_H
+#pragma message "HAVE_GENHD_H defined"
+#endif
+#ifdef HAVE_BIO_MAX_PAGES
+#pragma message "HAVE_BIO_MAX_PAGES defined"
+#endif
+#ifdef HAVE_BDEV_BIO_ALLOC
+#pragma message "HAVE_BDEV_BIO_ALLOC defined"
+#endif
+#ifdef HAVE_ADD_DISK_RESULT
+#pragma message "HAVE_ADD_DISK_RESULT defined"
 #endif
 
 static int g_param_zerosnapdata = 0;
@@ -498,7 +580,7 @@ void __exit veeamsnap_exit(void)
 
         result = tracker_done( );
         if (SUCCESS == result){
-            result = tracker_disk_done( );
+            tracker_disk_done( );
 
 #ifdef PERSISTENT_CBT
             cbt_persistent_done();

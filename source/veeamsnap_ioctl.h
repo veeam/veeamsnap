@@ -7,6 +7,8 @@
 
 #define MAX_TRACKING_DEVICE_COUNT    256
 
+#define VEEAM_SNAP_MODULE_NAME "veeamsnap"
+#define VEEAM_SNAP_IMAGE_NAME "veeamimage"
 #define VEEAM_SNAP 'V'
 
 #pragma pack(push,1)

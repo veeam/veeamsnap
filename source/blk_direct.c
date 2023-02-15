@@ -82,25 +82,79 @@ void _blk_dev_direct_bio_free( struct bio* bio )
 }
 #endif
 
-struct bio* _blk_dev_direct_bio_alloc( int nr_iovecs )
+static inline void _blk_dev_direct_bio_init(struct bio* bio)
 {
-    struct bio* new_bio = bio_alloc_bioset( GFP_NOIO, nr_iovecs, BlkDirectBioset );
-    if (new_bio == NULL)
-        return NULL;
+    blk_direct_bio_complete_t* bio_compl;
 
-    {
-        blk_direct_bio_complete_t* bio_compl = (blk_direct_bio_complete_t*)((void*)new_bio - sizeof( blk_direct_bio_complete_t ));
-        bio_compl->error = -EINVAL;
-        init_completion( &bio_compl->event );
-        new_bio->bi_private = bio_compl;
-        new_bio->bi_end_io = blk_direct_bio_endio;
+    bio_compl = (blk_direct_bio_complete_t*)((void*)bio - sizeof(blk_direct_bio_complete_t));
+    bio_compl->error = -EINVAL;
+    init_completion(&bio_compl->event);
+    bio->bi_private = bio_compl;
+    bio->bi_end_io = blk_direct_bio_endio;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)
-        new_bio->bi_destructor = _blk_dev_direct_bio_free;
+    bio->bi_destructor = _blk_dev_direct_bio_free;
 #endif
-    }
-    return new_bio;
 }
 
+#ifdef HAVE_BDEV_BIO_ALLOC
+static struct bio* _blk_dev_direct_bio_alloc(struct block_device* blkdev, int direction, int nr_iovecs)
+{
+    struct bio* bio;
+    unsigned int opf;
+
+    if (direction == READ)
+        opf = REQ_OP_READ;
+    else if (direction == WRITE)
+        opf = REQ_OP_WRITE;
+    else if (direction == READ_SYNC)
+        opf = REQ_OP_READ | REQ_SYNC;
+    else if (direction == WRITE_SYNC)
+        opf = REQ_OP_WRITE | REQ_SYNC;
+    else {
+        //do nothing
+    }
+
+    bio = bio_alloc_bioset(blkdev, nr_iovecs, opf, GFP_NOIO, BlkDirectBioset);
+    if (!bio)
+        return NULL;
+
+    _blk_dev_direct_bio_init(bio);
+    return bio;
+}
+#else
+static struct bio* _blk_dev_direct_bio_alloc(struct block_device* blkdev, int direction, int nr_iovecs)
+{
+    struct bio* bio = bio_alloc_bioset( GFP_NOIO, nr_iovecs, BlkDirectBioset );
+    if (!bio)
+        return NULL;
+
+    _blk_dev_direct_bio_init(bio);
+
+#if defined(bio_set_dev) || defined(VEEAMSNAP_FUNC_BIO_SET_DEV)
+    bio_set_dev(bio, blkdev);
+#else
+    bio->bi_bdev = blkdev;
+#endif
+
+#ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
+    bio->bi_rw = direction;
+#else
+    if (direction == READ)
+        bio_set_op_attrs(bio, REQ_OP_READ, 0);
+    else if (direction == WRITE)
+        bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
+    else if (direction == READ_SYNC)
+        bio_set_op_attrs(bio, REQ_OP_READ, REQ_SYNC);
+    else if (direction == WRITE_SYNC)
+        bio_set_op_attrs(bio, REQ_OP_WRITE, REQ_SYNC);
+    else {
+        //do nothing
+    }
+#endif
+
+    return bio;
+}
+#endif
 
 int _dev_direct_submit_pages(
     struct block_device* blkdev,
@@ -122,40 +176,24 @@ int _dev_direct_submit_pages(
         size_sector = min_t( sector_t, size_sector, q->limits.max_sectors );
 
 #ifdef BIO_MAX_VECS
-        nr_iovecs = bio_max_segs(DIV_ROUND_UP(size_sector, PAGE_SIZE));
-#elif defined(BIO_MAX_SECTORS)
-        size_sector = min_t( sector_t, size_sector, BIO_MAX_SECTORS );
-        nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
+        nr_iovecs = bio_max_segs(calc_page_count(size_sector));
 #else
         size_sector = min_t( sector_t, size_sector, (BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT)) );
         nr_iovecs = page_count_calc_sectors( ofs_sector, size_sector );
 #endif
     }
 
-    while (NULL == (bb = _blk_dev_direct_bio_alloc( nr_iovecs ))){
-        log_err_d( "Failed to allocate pages for direct IO. nr_iovecs=", nr_iovecs );
-        log_err_sect( "ofs_sector=", ofs_sector );
+    bb = _blk_dev_direct_bio_alloc(blkdev, direction, nr_iovecs);
+    if (!bb) {
+        log_err_d("Failed to allocate pages for direct IO. nr_iovecs=", nr_iovecs);
+        log_err_sect("ofs_sector=", ofs_sector);
 
         *processed_sectors = 0;
         return -ENOMEM;
     }
+
     bio_compl = (blk_direct_bio_complete_t*)bb->bi_private;
-
-#if defined(bio_set_dev) || defined(VEEAMSNAP_FUNC_BIO_SET_DEV)
-    bio_set_dev(bb, blkdev);
-#else
-    bb->bi_bdev = blkdev;
-#endif
-
-#ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
-    bb->bi_rw = direction;
-#else
-    if (direction == READ)
-        bio_set_op_attrs( bb, REQ_OP_READ, 0 );
-    else
-        bio_set_op_attrs( bb, REQ_OP_WRITE, 0 );
-#endif
-    bio_bi_sector( bb ) = ofs_sector;
+    bio_bi_sector(bb) = ofs_sector;
 
     {
         sector_t unordered = arr_ofs & (SECTORS_IN_PAGE - 1);
@@ -230,36 +268,17 @@ int blk_direct_submit_page( struct block_device* blkdev, int direction, sector_t
 {
     int res = -EIO;
     blk_direct_bio_complete_t* bio_compl = NULL;
-    struct bio *bb = _blk_dev_direct_bio_alloc(1);
+    struct bio* bb;
+
+    BUG_ON(blkdev == NULL);
+
+    bb = _blk_dev_direct_bio_alloc(blkdev, direction, 1);
     if (bb == NULL){
         log_err( "Failed to allocate bio for direct IO." );
         return -ENOMEM;
     }
+
     bio_compl = (blk_direct_bio_complete_t*)bb->bi_private;
-
-    BUG_ON(blkdev == NULL);
-#if defined(bio_set_dev) || defined(VEEAMSNAP_FUNC_BIO_SET_DEV)
-    bio_set_dev(bb, blkdev);
-#else
-    bb->bi_bdev = blkdev;
-#endif
-
-#ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
-    bb->bi_rw = direction;
-#else
-    if (direction == READ)
-        bio_set_op_attrs( bb, REQ_OP_READ, 0 );
-    else if (direction == WRITE)
-        bio_set_op_attrs(bb, REQ_OP_WRITE, 0);
-    else if (direction == READ_SYNC)
-        bio_set_op_attrs(bb, REQ_OP_READ, REQ_SYNC);
-    else if (direction == WRITE_SYNC)
-        bio_set_op_attrs(bb, REQ_OP_WRITE, REQ_SYNC );
-    else{
-        log_err("Invalid direction parameter");
-        return -EINVAL;
-    }
-#endif
     bio_bi_sector( bb ) = ofs_sect;
 
     BUG_ON(pg == NULL);

@@ -16,12 +16,25 @@ int tracker_disk_init(void)
     return SUCCESS;
 }
 
-int tracker_disk_done(void)
+void tracker_disk_done(void)
 {
-    int result = container_sl_done(&tracker_disk_container);
-    if (SUCCESS != result)
+    content_sl_t* content;
+
+    while (NULL != (content = container_sl_first( &tracker_disk_container ))){
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+        struct gendisk* disk = ((tracker_disk_t*)content)->disk;
+
+        blk_mq_freeze_queue(disk->queue);
+#endif
+        container_sl_free(content);
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+        blk_mq_unfreeze_queue(disk->queue);
+#endif
+    }
+
+    if (SUCCESS != container_sl_done(&tracker_disk_container))
         log_err("Failed to free up tracker queue container");
-    return result;
+    return ;
 }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
@@ -55,7 +68,11 @@ int tracker_disk_ref(struct request_queue *queue, tracker_disk_t** ptracker_disk
 #else
     res = tracker_disk_find(queue, &tr_disk);
 #endif
-    if (SUCCESS == res){
+    if ((res < 0) && (-ENODATA != res)){
+        log_err_d( "Cannot to find tracker disk. errno=", res );
+        return res;
+    }
+    if ((SUCCESS == res) && atomic_read(&tr_disk->atomic_ref_count)) {
         log_tr("Tracker disk already exists");
 
         *ptracker_disk = tr_disk;
@@ -64,33 +81,30 @@ int tracker_disk_ref(struct request_queue *queue, tracker_disk_t** ptracker_disk
         return res;
     }
 
-    if (-ENODATA != res){
-        log_err_d( "Cannot to find tracker disk. errno=", res );
-        return res;
-    }
+    if (-ENODATA == res){
+        log_tr("New tracker disk create");
 
-    log_tr("New tracker disk create");
+        tr_disk = (tracker_disk_t*)container_sl_new(&tracker_disk_container);
+        if (NULL==tr_disk)
+            return -ENOMEM;
 
-    tr_disk = (tracker_disk_t*)container_sl_new(&tracker_disk_container);
-    if (NULL==tr_disk)
-        return -ENOMEM;
-
-    atomic_set( &tr_disk->atomic_ref_count, 0 );
+        atomic_set( &tr_disk->atomic_ref_count, 0 );
 
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-    log_tr("The disk's fops is being substituted.");
+        log_tr("The disk's fops is being substituted.");
 
-    if (!ke_get_addr(KE_BLK_MQ_SUBMIT_BIO)) {
-        log_err("TBD: Kernel entry 'blk_mq_submit_bio' is not initialized.");
-        container_sl_free(&tr_disk->content);
-        return -ENOSYS;
+        if (!ke_get_addr(KE_BLK_MQ_SUBMIT_BIO)) {
+            log_err("TBD: Kernel entry 'blk_mq_submit_bio' is not initialized.");
+            container_sl_free(&tr_disk->content);
+            return -ENOSYS;
+        }
+
+        /* copy fops from original disk except submit_bio */
+        tr_disk->original_fops = (struct block_device_operations *)(disk->fops);
+        memcpy(&tr_disk->fops, tr_disk->original_fops, sizeof(struct block_device_operations));
+        tr_disk->fops.submit_bio = tracking_make_request;
+        barrier();
     }
-
-    /* copy fops from original disk except submit_bio */
-    tr_disk->original_fops = (struct block_device_operations *)(disk->fops);
-    memcpy(&tr_disk->fops, tr_disk->original_fops, sizeof(struct block_device_operations));
-    tr_disk->fops.submit_bio = tracking_make_request;
-    barrier();
 
     /* lock cpu */
     preempt_disable();
@@ -114,14 +128,16 @@ int tracker_disk_ref(struct request_queue *queue, tracker_disk_t** ptracker_disk
 
     tr_disk->disk = disk;
 #else
+
 #if defined(VEEAMSNAP_MQ_REQUEST)
-    if (!ke_get_addr(KE_BLK_MQ_MAKE_REQUEST)) {
-        log_err("TBD: Kernel entry 'blk_mq_make_request' is not initialized.");
-        container_sl_free(&tr_disk->content);
-        return -ENOSYS;
-    }
+        if (!ke_get_addr(KE_BLK_MQ_MAKE_REQUEST)) {
+            log_err("TBD: Kernel entry 'blk_mq_make_request' is not initialized.");
+            container_sl_free(&tr_disk->content);
+            return -ENOSYS;
+        }
 #endif
-    tr_disk->original_make_request_fn = queue->make_request_fn;
+        tr_disk->original_make_request_fn = queue->make_request_fn;
+    }
     queue->make_request_fn = tracking_make_request;
 
     tr_disk->queue = queue;
@@ -170,11 +186,6 @@ void tracker_disk_unref(tracker_disk_t* tr_disk)
         struct gendisk *disk = tr_disk->disk;
 
         log_tr("The disk's fops is being restored.");
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,16,0)
-        //queue already freezed 
-#else
-        blk_mq_freeze_queue(disk->queue);
-#endif
 
         /* lock cpu */
         preempt_disable();
@@ -194,17 +205,11 @@ void tracker_disk_unref(tracker_disk_t* tr_disk)
         /* unlock cpu */
         local_irq_enable();
         preempt_enable();
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,16,0)
-        //do nothing
-#else
-        blk_mq_unfreeze_queue(disk->queue);
-#endif
 #else
         tr_disk->queue->make_request_fn = tr_disk->original_make_request_fn;
 #endif
-        container_sl_free(&tr_disk->content);
 
-        log_tr("Tracker disk freed");
+        log_tr("Tracker disk detached");
     }
     else
         log_tr("Tracker disk is in use");

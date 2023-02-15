@@ -49,7 +49,7 @@ int ke_get_unresolved(char *buf, size_t max_size)
     for (ke_inx = 0; ke_inx < KE_SIZE; ke_inx++) {
         if (ke_addr_table[ke_inx].addr)
             continue;
-        
+
         src_len = strlen(ke_addr_table[ke_inx].name);
         if ((src_len + 1) > (max_size - buf_ofs))
             return -ENOSPC;

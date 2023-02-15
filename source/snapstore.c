@@ -52,6 +52,8 @@ void _snapstore_destroy( snapstore_t* snapstore )
         ctrl_pipe_put_resource( pipe );
     }
     container_free( &snapstore->content );
+
+    log_tr("Snapstore was destroyed");
 }
 
 void _snapstore_destroy_cb( void* resource )

@@ -30,7 +30,7 @@ typedef struct cbt_map_s
 
     sector_t state_changed_sectors;
     sector_t state_dirty_sectors;
-    
+
 }cbt_map_t;
 
 cbt_map_t* cbt_map_create(unsigned int cbt_sect_in_block_degree, sector_t device_capacity);

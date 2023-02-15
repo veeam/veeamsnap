@@ -49,8 +49,7 @@ void ctrl_pipe_release_cb( void* resource )
 {
     ctrl_pipe_t* pipe = (ctrl_pipe_t*)resource;
 
-    //log_tr( "Ctrl pipe release" );
-
+    log_tr( "Ctrl pipe release" );
     while (!container_empty( &pipe->cmd_to_user )){
         cmd_to_user_t* request = (cmd_to_user_t*)container_get_first( &pipe->cmd_to_user );
         dbg_kfree( request->request_buffer );
@@ -63,13 +62,14 @@ void ctrl_pipe_release_cb( void* resource )
     };
 
     container_free( &pipe->content );
+    log_tr("Ctrl pipe was released");
 }
 
 ctrl_pipe_t* ctrl_pipe_new( void )
 {
     ctrl_pipe_t* pipe;
-    //log_tr( "Create new ctrl pipe" );
 
+    log_tr( "Create new ctrl pipe" );
     if (NULL == (pipe = (ctrl_pipe_t*)container_new( &CtrlPipes ))){
         log_tr( "Failed to create new ctrl pipe: not enough memory" );
         return NULL;

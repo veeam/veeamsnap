@@ -85,18 +85,44 @@ void _blk_dev_redirect_bio_free( struct bio* bio )
 }
 #endif
 
-struct bio* _blk_dev_redirect_bio_alloc( int nr_iovecs, void* bi_private )
+#ifdef HAVE_BDEV_BIO_ALLOC
+static struct bio* _blk_dev_redirect_bio_alloc(struct block_device* blkdev, int direction, int nr_iovecs)
 {
-    struct bio* new_bio = bio_alloc_bioset( GFP_NOIO, nr_iovecs, BlkRedirectBioset );
-    if (new_bio){
-        new_bio->bi_end_io = blk_redirect_bio_endio;
-        new_bio->bi_private = bi_private;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)
-        new_bio->bi_destructor = _blk_dev_redirect_bio_free;
-#endif
-    }
-    return new_bio;
+    unsigned int opf;
+
+    if (direction == READ)
+        opf = REQ_OP_READ;
+    else if (direction == WRITE)
+        opf = REQ_OP_WRITE;
+
+    return bio_alloc_bioset(blkdev, nr_iovecs, opf, GFP_NOIO, BlkRedirectBioset);
 }
+#else
+static struct bio* _blk_dev_redirect_bio_alloc(struct block_device* blkdev, int direction, int nr_iovecs)
+{
+    struct bio* bio = bio_alloc_bioset(GFP_NOIO, nr_iovecs, BlkRedirectBioset);
+
+    if (!bio)
+        return NULL;
+
+#if defined(bio_set_dev) || defined(VEEAMSNAP_FUNC_BIO_SET_DEV)
+    bio_set_dev(bio, blkdev);
+#else
+    bio->bi_bdev = blkdev;
+#endif
+
+#ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
+    bio->bi_rw = direction;
+#else
+    if (direction == READ)
+        bio_set_op_attrs(bio, REQ_OP_READ, 0);
+    else if (direction == WRITE)
+        bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
+#endif
+
+    return bio;
+}
+#endif //HAVE_BDEV_BIO_ALLOC
 
 blk_redirect_bio_endio_list_t* _bio_endio_alloc_list( struct bio* new_bio )
 {
@@ -163,10 +189,7 @@ int _blk_dev_redirect_part_fast( blk_redirect_bio_endio_t* rq_endio, int directi
         struct request_queue *q = bdev_get_queue( blk_dev );
 
 #ifdef BIO_MAX_VECS
-        nr_iovecs = bio_max_segs(DIV_ROUND_UP(q->limits.max_sectors, PAGE_SIZE));
-#elif defined(BIO_MAX_SECTORS)
-        unsigned int max_sect = min_t(unsigned int, BIO_MAX_SECTORS, q->limits.max_sectors );
-        nr_iovecs = max_sect >> (PAGE_SHIFT - SECTOR_SHIFT);
+        nr_iovecs = bio_max_segs(calc_page_count(q->limits.max_sectors));
 #else
         unsigned int max_sect = min_t(unsigned int, BIO_MAX_PAGES << (PAGE_SHIFT - SECTOR_SHIFT),
                                     q->limits.max_sectors );
@@ -205,31 +228,18 @@ int _blk_dev_redirect_part_fast( blk_redirect_bio_endio_t* rq_endio, int directi
 
 __reprocess_bv:
         if (new_bio == NULL){
-            while (NULL == (new_bio = _blk_dev_redirect_bio_alloc( nr_iovecs, rq_endio ))){
+            while (NULL == (new_bio = _blk_dev_redirect_bio_alloc(blk_dev, direction, nr_iovecs))){
                 log_err( "Unable to allocate new bio for redirect IO." );
                 res = -ENOMEM;
                 goto __fail_out;
             }
-#if defined(bio_set_dev) || defined(VEEAMSNAP_FUNC_BIO_SET_DEV)
-            bio_set_dev(new_bio, blk_dev);
-#else
-            new_bio->bi_bdev = blk_dev;
+
+            new_bio->bi_end_io = blk_redirect_bio_endio;
+            new_bio->bi_private = rq_endio;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,5,0)
+            new_bio->bi_destructor = _blk_dev_redirect_bio_free;
 #endif
 
-            if (direction == READ){
-#ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
-                new_bio->bi_rw = READ;
-#else
-                bio_set_op_attrs( new_bio, REQ_OP_READ, 0 );
-#endif
-            }
-            if (direction == WRITE){
-#ifndef REQ_OP_BITS //#if LINUX_VERSION_CODE < KERNEL_VERSION(4,8,0)
-                new_bio->bi_rw = WRITE;
-#else
-                bio_set_op_attrs( new_bio, REQ_OP_WRITE, 0 );
-#endif
-            }
             bio_bi_sector( new_bio ) = target_pos + processed_sectors;// +bvec_ofs;
         }
 

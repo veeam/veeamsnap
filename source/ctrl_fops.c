@@ -335,7 +335,7 @@ int ioctl_set_kernel_entries(unsigned long arg)
         goto out;
     }
 
-    // check first entry 
+    // check first entry
     name = strndup_user(entries[0].name, KERNEL_ENTRY_NAME_MAX);
     if (IS_ERR(name)) {
         log_err("Unable to set kernel entries: invalid user buffer");

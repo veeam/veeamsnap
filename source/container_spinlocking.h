@@ -33,6 +33,7 @@ void container_sl_free( content_sl_t* pCnt );
 int container_sl_length( container_sl_t* pContainer );
 bool container_sl_empty( container_sl_t* pContainer );
 
+content_sl_t* container_sl_first(container_sl_t* pContainer);
 size_t container_sl_push_back( container_sl_t* pContainer, content_sl_t* pCnt );
 content_sl_t* container_sl_get_first( container_sl_t* pContainer );
 

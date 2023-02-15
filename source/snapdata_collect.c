@@ -7,45 +7,92 @@
 #define SECTION "snapdatact"
 #include "log_format.h"
 
-static container_sl_t SnapdataCollectors;
+struct collector_list
+{
+    struct list_head headList;
+    rwlock_t lock;
+};
 
+static struct collector_list ActiveCollectors;
+static struct collector_list StoppedCollectors;
 
-int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicUserBuff, size_t MagicLength );
-void _collector_free( snapdata_collector_t* collector );
+static inline void collector_list_init(struct collector_list* lst)
+{
+    INIT_LIST_HEAD(&lst->headList);
+    rwlock_init(&lst->lock);
+};
 
+static inline snapdata_collector_t* collector_list_first(struct collector_list* lst)
+{
+    snapdata_collector_t* collector = NULL;
+
+    read_lock(&lst->lock);
+    if (!list_empty(&lst->headList))
+        collector = list_entry(lst->headList.next, snapdata_collector_t, link);
+    read_unlock(&lst->lock);
+
+    return collector;
+}
+
+static inline snapdata_collector_t* collector_list_get_first(struct collector_list* lst)
+{
+    snapdata_collector_t* collector = NULL;
+
+    write_lock(&lst->lock);
+    if (!list_empty(&lst->headList)) {
+        collector = list_entry(lst->headList.next, snapdata_collector_t, link);
+        if (collector)
+            list_del(&collector->link);
+    }
+    write_unlock(&lst->lock);
+
+    return collector;
+}
+
+static inline void collector_list_push_back(struct collector_list* lst, snapdata_collector_t* collector)
+{
+    write_lock(&lst->lock);
+    list_add_tail(&collector->link, &lst->headList);
+    write_unlock(&lst->lock);
+}
+
+static inline void collector_list_pull(struct collector_list* lst, snapdata_collector_t* collector)
+{
+    write_lock(&lst->lock);
+    list_del(&collector->link);
+    write_unlock(&lst->lock);
+}
+
+static int collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicUserBuff, size_t MagicLength );
+static void collector_free( snapdata_collector_t* collector );
+static void collector_stop(snapdata_collector_t* collector);
+static snapdata_collector_t* collector_get(dev_t dev_id, bool pull);
 
 int snapdata_collect_Init( void )
 {
-    container_sl_init( &SnapdataCollectors, sizeof( snapdata_collector_t ));
+    collector_list_init(&ActiveCollectors);
+    collector_list_init(&StoppedCollectors);
+
     return SUCCESS;
 }
 
-
-int snapdata_collect_Done( void )
+void snapdata_collect_Done( void )
 {
-    int res;
-    content_sl_t* content = NULL;
+    snapdata_collector_t* collector = NULL;
 
-    while (NULL != (content = container_sl_get_first( &SnapdataCollectors ))){
-        _collector_free( (snapdata_collector_t*)content );
-        content_sl_free( (content_sl_t*)content );
-        content = NULL;
-    }
+    while ((collector = collector_list_first(&ActiveCollectors)))
+        collector_stop(collector);
 
-    res = container_sl_done( &SnapdataCollectors );
-    if (res != SUCCESS){
-        log_err( "Failed to free snapstore collectors container" );
-    }
-    return res;
+    while ((collector = collector_list_get_first(&StoppedCollectors)))
+        collector_free(collector);
 }
 
-
-int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicUserBuff, size_t MagicLength )
+static int collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicUserBuff, size_t MagicLength )
 {
     int res = SUCCESS;
 
+    INIT_LIST_HEAD(&collector->link);
     collector->fail_code = SUCCESS;
-
     collector->dev_id = dev_id;
 
     res = blk_dev_open( collector->dev_id, &collector->device );
@@ -91,6 +138,12 @@ int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicU
 #endif
 
     mutex_init(&collector->locker);
+    return res;
+}
+
+static int _collector_start(snapdata_collector_t* collector)
+{
+    int res = SUCCESS;
 
     {
 #ifdef VEEAMSNAP_BLK_FREEZE
@@ -106,14 +159,15 @@ int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicU
 #else
             res = tracker_disk_ref(collector->device->bd_disk->queue, &collector->tr_disk);
 #endif
-            if (res != SUCCESS)
+            if (res == SUCCESS)
+                collector_list_push_back(&ActiveCollectors, collector);
+            else
                 log_err("Unable to initialize snapstore collector: failed to reference tracker disk");
 
 #ifdef VEEAMSNAP_BLK_FREEZE
             sb = blk_thaw_bdev(collector->dev_id, collector->device, sb);
 #else
-            res = thaw_bdev(collector->device);
-            if (res != SUCCESS)
+            if (thaw_bdev(collector->device) != SUCCESS)
                 log_err("Failed to thaw block device");
 #endif
         }
@@ -122,7 +176,7 @@ int _collector_init( snapdata_collector_t* collector, dev_t dev_id, void* MagicU
     return res;
 }
 
-void _collector_stop( snapdata_collector_t* collector )
+static void collector_stop( snapdata_collector_t* collector )
 {
     int res;
 #ifdef VEEAMSNAP_BLK_FREEZE
@@ -143,6 +197,9 @@ void _collector_stop( snapdata_collector_t* collector )
     tracker_disk_unref( collector->tr_disk );
     collector->tr_disk = NULL;
 
+    collector_list_pull(&ActiveCollectors, collector);
+    collector_list_push_back(&StoppedCollectors, collector);
+
 #ifdef VEEAMSNAP_BLK_FREEZE
     sb = blk_thaw_bdev(collector->dev_id, collector->device, sb);
 #else
@@ -153,9 +210,8 @@ void _collector_stop( snapdata_collector_t* collector )
 }
 
 
-void _collector_free( snapdata_collector_t* collector )
+static void collector_free( snapdata_collector_t* collector )
 {
-    _collector_stop( collector );
 #ifdef SNAPDATA_SPARSE_CHANGES
     sparsebitmap_destroy( &collector->changes_sparse );
 #else
@@ -171,6 +227,8 @@ void _collector_free( snapdata_collector_t* collector )
         blk_dev_close( collector->device );
         collector->device = NULL;
     }
+
+    dbg_kfree(collector);
 }
 
 
@@ -181,26 +239,29 @@ int snapdata_collect_LocationStart( dev_t dev_id, void* MagicUserBuff, size_t Ma
 
     log_tr_dev_t( "Start collecting snapstore data location on device ", dev_id );
 
-    collector = (snapdata_collector_t*)content_sl_new( &SnapdataCollectors );
+    collector = dbg_kzalloc(sizeof(snapdata_collector_t), GFP_KERNEL);
     if (NULL == collector){
         log_err( "Unable to start collecting snapstore data location: not enough memory" );
         return  -ENOMEM;
     }
 
-    res = _collector_init( collector, dev_id, MagicUserBuff, MagicLength );
-    if (res == SUCCESS){
-        container_sl_push_back( &SnapdataCollectors, &collector->content );
-    }else{
-        _collector_free( collector );
+    res = collector_init( collector, dev_id, MagicUserBuff, MagicLength );
+    if (res)
+        goto fail;
 
-        content_sl_free( &collector->content );
-        collector = NULL;
-    }
+    res = _collector_start(collector);
+    if (res)
+        goto fail;
+
+    return SUCCESS;
+
+fail:
+    collector_free(collector);
 
     return res;
 }
 
-void rangelist_calculate(rangelist_t* rangelist, sector_t *ranges_length, size_t *count, bool make_output)
+static void rangelist_calculate(rangelist_t* rangelist, sector_t *ranges_length, size_t *count, bool make_output)
 {
     //calculate and show information about ranges
     range_t* rg;
@@ -221,7 +282,7 @@ void rangelist_calculate(rangelist_t* rangelist, sector_t *ranges_length, size_t
 }
 
 #ifndef SNAPDATA_SPARSE_CHANGES
-int page_array_convert2rangelist(page_array_t* changes, rangelist_t* rangelist, stream_size_t start_index, stream_size_t length)
+static int page_array_convert2rangelist(page_array_t* changes, rangelist_t* rangelist, stream_size_t start_index, stream_size_t length)
 {
     int res = SUCCESS;
     range_t rg = { 0 };
@@ -263,30 +324,38 @@ int snapdata_collect_LocationGet( dev_t dev_id, rangelist_t* rangelist, size_t* 
     size_t count = 0;
     sector_t ranges_length = 0;
     snapdata_collector_t* collector = NULL;
+    stream_size_t collected_size;
+    stream_size_t already_set_size;
     int res;
 
     log_tr( "Get snapstore data location");
-    res = snapdata_collect_Get( dev_id, &collector );
-    if (res != SUCCESS){
+    collector = collector_get(dev_id, false);
+    if (!collector){
         log_err_dev_t( "Unable to get snapstore data location: cannot find collector for device ", dev_id );
-        return res;
+        return -ENODEV;
     }
-
-    _collector_stop( collector );
 
     if (collector->fail_code != SUCCESS){
         log_err_d( "Unable to get snapstore data location: collecting failed with errno=", 0-collector->fail_code );
         return collector->fail_code;
     }
+
+    mutex_lock(&collector->locker);
+    {
 #ifdef SNAPDATA_SPARSE_CHANGES
-    res = sparsebitmap_convert2rangelist(&collector->changes_sparse, rangelist, collector->changes_sparse.start_index);
+        res = sparsebitmap_convert2rangelist(&collector->changes_sparse, rangelist, collector->changes_sparse.start_index);
 #else
-    res = page_array_convert2rangelist(collector->changes, rangelist, collector->start_index, collector->length);
+        res = page_array_convert2rangelist(collector->changes, rangelist, collector->start_index, collector->length);
 #endif
+        collected_size = atomic64_read(&collector->collected_size);
+        already_set_size = atomic64_read(&collector->already_set_size);
+    }
+    mutex_unlock(&collector->locker);
+
     if (res == SUCCESS){
         rangelist_calculate(rangelist, &ranges_length, &count, false);
-        log_tr_llx("Collection size: ", collector->collected_size);
-        log_tr_llx("Already set size: ", collector->already_set_size);
+        log_tr_lld("Collection size: ", collected_size);
+        log_tr_lld("Already set size: ", already_set_size);
         log_tr_d("Ranges count: ", count);
 
         *ranges_count = count;
@@ -297,38 +366,59 @@ int snapdata_collect_LocationGet( dev_t dev_id, rangelist_t* rangelist, size_t* 
 int snapdata_collect_LocationComplete( dev_t dev_id )
 {
     snapdata_collector_t* collector = NULL;
-    int res;
 
-    log_tr( "Collecting snapstore data location completed" );
-    res = snapdata_collect_Get( dev_id, &collector );
-    if (res != SUCCESS){
-        log_err_dev_t( "Unable to complete collecting snapstore data location: cannot find collector for device ", dev_id );
-        return res;
+    log_tr("Collecting snapstore data location completed");
+    collector = collector_get(dev_id, true);
+    if (!collector) {
+        log_err_dev_t("Unable to complete collecting snapstore data location: cannot find collector for device ", dev_id);
+        return -ENODEV;
     }
+    collector_free( collector );
 
-    _collector_free( collector );
-    container_sl_free( &collector->content );
-
-    return res;
+    return SUCCESS;
 }
 
-
-int snapdata_collect_Get( dev_t dev_id, snapdata_collector_t** p_collector )
+static snapdata_collector_t* collector_get( dev_t dev_id, bool pull)
 {
-    int res = -ENODATA;
-    content_sl_t* content = NULL;
-    snapdata_collector_t* collector = NULL;
-    CONTAINER_SL_FOREACH_BEGIN( SnapdataCollectors, content )
-    {
-        collector = (snapdata_collector_t*)content;
+    snapdata_collector_t* collector;
 
-        if (dev_id == collector->dev_id){
-            *p_collector = collector;
-            res = SUCCESS;    //don`t continue
+    /* Try to find active collector */
+    collector = NULL;
+    read_lock(&ActiveCollectors.lock);
+    if (!list_empty(&ActiveCollectors.headList)) {
+        snapdata_collector_t* it = NULL;
+
+        list_for_each_entry(it, &ActiveCollectors.headList, link) {
+            if (dev_id == it->dev_id) {
+                collector = it;
+                break;
+            }
         }
     }
-    CONTAINER_SL_FOREACH_END( SnapdataCollectors );
-    return res;
+    read_unlock(&ActiveCollectors.lock);
+
+    /*Stop active collector*/
+    if (collector)
+        collector_stop(collector);
+
+    /* Try to find stopped collector */
+    collector = NULL;
+    write_lock(&StoppedCollectors.lock);
+    if (!list_empty(&StoppedCollectors.headList)) {
+        snapdata_collector_t* it = NULL;
+
+        list_for_each_entry(it, &StoppedCollectors.headList, link) {
+            if (dev_id == it->dev_id) {
+                collector = it;
+                if (pull)
+                    list_del(&collector->link);
+                break;
+            }
+        }
+    }
+    write_unlock(&StoppedCollectors.lock);
+
+    return collector;
 }
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 int snapdata_collect_Find(struct bio *bio, snapdata_collector_t** p_collector)
@@ -337,34 +427,38 @@ int snapdata_collect_Find(struct bio *bio, struct request_queue *queue, snapdata
 #endif
 {
     int res = -ENODATA;
-    content_sl_t* content = NULL;
 
-    CONTAINER_SL_FOREACH_BEGIN( SnapdataCollectors, content )
-    {
-        snapdata_collector_t* collector = (snapdata_collector_t*)content;
+    read_lock(&ActiveCollectors.lock);
+    if (!list_empty(&ActiveCollectors.headList)) {
+        snapdata_collector_t* it = NULL;
+
+        list_for_each_entry(it, &ActiveCollectors.headList, link) {
 #ifdef VEEAMSNAP_BDEV_BIO
-        if (collector->device == bio->bi_bdev)
+            if (it->device == bio->bi_bdev)
 #else
-        if (
+            if (
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-            (collector->device->bd_disk == bio->bi_disk)
+                (it->device->bd_disk == bio->bi_disk)
 #else
-            (collector->device->bd_disk->queue == queue)
+                (it->device->bd_disk->queue == queue)
 #endif
-            && (bio_bi_sector( bio ) >= blk_dev_get_start_sect( collector->device ))
-            && ( bio_bi_sector( bio ) < (blk_dev_get_start_sect( collector->device ) + blk_dev_get_capacity( collector->device )))
-        )
+                && (bio_bi_sector(bio) >= blk_dev_get_start_sect(it->device))
+                && (bio_bi_sector(bio) < (blk_dev_get_start_sect(it->device) + blk_dev_get_capacity(it->device)))
+                )
 #endif
-        {
-            *p_collector = collector;
-            res = SUCCESS;    //don`t continue
+            {
+                *p_collector = it;
+                res = SUCCESS;
+                break;
+            }
         }
     }
-    CONTAINER_SL_FOREACH_END( SnapdataCollectors );
+    read_unlock(&ActiveCollectors.lock);
+
     return res;
 }
 
-int _snapdata_collect_bvec( snapdata_collector_t* collector, sector_t ofs, struct bio_vec* bvec )
+static int _snapdata_collect_bvec( snapdata_collector_t* collector, sector_t ofs, struct bio_vec* bvec )
 {
     int res = SUCCESS;
     unsigned int bv_len;
@@ -407,34 +501,12 @@ int _snapdata_collect_bvec( snapdata_collector_t* collector, sector_t ofs, struc
 #else
             res = page_array_bit_set(collector->changes, (index - collector->start_index), true);
 #endif
-            if (res == SUCCESS){
-                collector->collected_size += SECTOR_SIZE;
-/*
-                if (index == collector->collected_end + 1)
-                    collector->collected_end++;
+            if (res == SUCCESS)
+                atomic64_add(SECTOR_SIZE, &collector->collected_size);
+            else {
+                if (res == -EALREADY)
+                    atomic64_add(SECTOR_SIZE, &collector->already_set_size);
                 else {
-                    log_tr_sect("Collected index from: ", collector->collected_begin);
-                    log_tr_sect("Collected index to  : ", collector->collected_end);
-
-                    collector->collected_begin = index;
-                    collector->collected_end = index;
-                }
-*/
-            }else{
-                if (res == -EALREADY){
-                    collector->already_set_size += SECTOR_SIZE;
-/*
-                    if (index == collector->already_set_end + 1)
-                        collector->already_set_end++;
-                    else {
-                        log_tr_sect("Already set index from: ", collector->already_set_begin);
-                        log_tr_sect("Already set index to  : ", collector->already_set_end);
-
-                        collector->already_set_begin = index;
-                        collector->already_set_end = index;
-                    }
-*/
-                }else{
                     log_err_format("Failed to collect snapstore data location. Sector=%lld, errno=%d", index, res);
                     break;
                 }

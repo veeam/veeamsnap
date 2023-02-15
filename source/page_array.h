@@ -48,3 +48,14 @@ int page_array_byte_set( page_array_t* arr, size_t inx, byte_t value );
 // bit access
 int page_array_bit_get( page_array_t* arr, size_t inx, bool* value );
 int page_array_bit_set( page_array_t* arr, size_t inx, bool value );
+
+#ifndef PAGE_SECTORS
+#define PAGE_SECTORS	(1 << (PAGE_SHIFT - SECTOR_SHIFT))
+#endif
+
+#ifdef BIO_MAX_VECS
+static inline unsigned short calc_page_count(sector_t sectors)
+{
+    return round_up(sectors, PAGE_SECTORS) / PAGE_SECTORS;
+}
+#endif

@@ -16,7 +16,7 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 	rangelist.o \
 	rangelist_ex.o \
 	rangevector.o \
-    kernel_entries.o \
+	kernel_entries.o \
 	blk_util.o \
 	blk_direct.o \
 	blk_redirect.o \
@@ -53,16 +53,44 @@ KERNEL_MODULE_OBJECT_FILE_LIST := \
 
 obj-m := $(KERNEL_MODULE_NAME).o
 $(KERNEL_MODULE_NAME)-y += $(KERNEL_MODULE_OBJECT_FILE_LIST)
-ccflags-y := -O2 -Wno-multichar
-SHELL:=/bin/bash 
-ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; val="DISTRIB_NAME.$$ID"; echo "-D"$${val//[.-]/_} | awk '{print toupper($$0)}' ; fi )
-ccflags-y += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; awk '{ n=split($$0,v,"."); for (i=0; ++i<=n;) print "-DDISTRIB_VERSION_"i"="v[i] }' <<< $$VERSION_ID ; fi )
+EXTRA_CFLAGS += -O2 -Wno-multichar
+SHELL:=/bin/bash
+EXTRA_CFLAGS += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; val="DISTRIB_NAME.$$ID"; echo "-D"$${val//[.-]/_} | awk '{print toupper($$0)}' ; fi )
+EXTRA_CFLAGS += $(shell if [[ -r /etc/os-release ]]; then . /etc/os-release; awk '{ n=split($$0,v,"."); for (i=0; ++i<=n;) print "-DDISTRIB_VERSION_"i"="v[i] }' <<< $$VERSION_ID ; fi )
+
+EXTRA_CFLAGS += $(shell                                                        \
+	grep -qw "void submit_bio_noacct" $(srctree)/include/linux/blkdev.h &&     \
+		echo -D VEEAMSNAP_VOID_SUBMIT_BIO)
+
+EXTRA_CFLAGS += $(shell                                                        \
+	grep -qw "void bio_set_dev" $(srctree)/include/linux/bio.h &&              \
+		echo -D VEEAMSNAP_FUNC_BIO_SET_DEV)
+
+EXTRA_CFLAGS += $(shell                                                        \
+	test -f $(srctree)/include/linux/genhd.h &&                                \
+		echo -D HAVE_GENHD_H)
+
+EXTRA_CFLAGS += $(shell                                                        \
+	grep -qw "BIO_MAX_PAGES" $(srctree)/include/linux/bio.h &&                 \
+		echo -D HAVE_BIO_MAX_PAGES)
+
+EXTRA_CFLAGS += $(shell                                                        \
+	grep "bio_alloc_bioset" $(srctree)/include/linux/bio.h |                   \
+	grep -qw "struct block_device" &&                                          \
+		echo -D HAVE_BDEV_BIO_ALLOC)
+
+EXTRA_CFLAGS += $(shell test -f $(srctree)/include/linux/genhd.h &&	           \
+	grep -qw "int add_disk" $(srctree)/include/linux/genhd.h &&                \
+		echo -D HAVE_ADD_DISK_RESULT)
+
+EXTRA_CFLAGS += $(shell test -f $(srctree)/include/linux/blkdev.h &&           \
+	grep -qw "int __must_check add_disk" $(srctree)/include/linux/blkdev.h &&               \
+		echo -D HAVE_ADD_DISK_RESULT)
 
 default:
 	@echo Configuring...
 	chmod +x ./genconfig.sh && ./genconfig.sh "$(KERNEL_RELEASE)"
 	@echo Making all...
-	@echo ccflags-y= $(ccflags-y)
 	make -j$(shell nproc) -C /lib/modules/$(KERNEL_RELEASE)/build M=$(PWD) modules
 	@echo Completed.
 
@@ -85,9 +113,8 @@ uninstall:
 
 load:
 	@echo Loading $(KERNEL_MODULE_NAME) kernel module from current folder
-	mknod /dev/$(KERNEL_MODULE_NAME) c $(shell insmod ./$(KERNEL_MODULE_NAME).ko zerosnapdata=1; cat /proc/devices | grep $(KERNEL_MODULE_NAME) | awk '{print $$1}') 0
+	insmod ./$(KERNEL_MODULE_NAME).ko zerosnapdata=1
 
 unload:
 	@echo Unloading $(KERNEL_MODULE_NAME) kernel module
-	@echo $(shell rmmod $(KERNEL_MODULE_NAME); rm -f /dev/$(KERNEL_MODULE_NAME))
-	$(shell rmmod $(KERNEL_MODULE_NAME))
+	rmmod $(KERNEL_MODULE_NAME)

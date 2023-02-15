@@ -55,26 +55,11 @@
 # endif
 #endif
 
-/* Since kernel 5.15 the add_disk() has result */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
-# ifndef VEEAMSNAP_INT_ADD_DISK
-#  define VEEAMSNAP_INT_ADD_DISK
-# endif
-#endif
-
-/* Since kernel 5.16 the submit_bio() has no result */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,16,0)
-# ifndef VEEAMSNAP_VOID_SUBMIT_BIO
-#  define VEEAMSNAP_VOID_SUBMIT_BIO
-# endif
-# ifndef VEEAMSNAP_FUNC_BIO_SET_DEV
-#  define VEEAMSNAP_FUNC_BIO_SET_DEV
-# endif
-#endif
-
 #include <linux/fs.h>
 #include <linux/types.h>
-#include <linux/genhd.h> // For basic block driver framework
+#ifdef HAVE_GENHD_H
+#include <linux/genhd.h>
+#endif
 #include <linux/blkdev.h>
 #include <linux/bio.h>
 #include <linux/hdreg.h> // For struct hd_geometry

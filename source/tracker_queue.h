@@ -30,7 +30,7 @@ typedef struct _tracker_disk_s
 }tracker_disk_t;
 
 int tracker_disk_init(void );
-int tracker_disk_done(void );
+void tracker_disk_done(void );
 
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk);

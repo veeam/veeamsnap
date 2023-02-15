@@ -116,6 +116,20 @@ void container_sl_get( content_sl_t* pCnt )
     write_unlock( &pContainer->lock );
 }
 
+content_sl_t* container_sl_first(container_sl_t* pContainer)
+{
+    content_sl_t* pCnt = NULL;
+
+    write_lock( &pContainer->lock );
+    {
+        if (!list_empty( &pContainer->headList ))
+            pCnt = list_entry( pContainer->headList.next, content_sl_t, link );
+    }
+    write_unlock( &pContainer->lock );
+
+    return pCnt;
+}
+
 content_sl_t* container_sl_get_first( container_sl_t* pContainer )
 {
     content_sl_t* pCnt = NULL;

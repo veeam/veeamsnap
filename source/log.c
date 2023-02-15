@@ -480,7 +480,7 @@ int logging_init( const char* logdir, unsigned long logmaxsize )
 
     memset( &logging->m_modify_time, 0, sizeof(logging->m_modify_time) );
     logging->m_state = LOGGING_STATE_READY;
-    
+
     {
         int res = queue_sl_init( &logging->m_rq_proc_queue, sizeof( logging_request_t ) );
         if (res != SUCCESS){
@@ -509,7 +509,7 @@ void logging_done( void )
 
     logging->m_state = LOGGING_STATE_DONE;
     if (logging->m_rq_thread != NULL){
-        
+
         kthread_stop( logging->m_rq_thread );
         logging->m_rq_thread = NULL;
     }
@@ -524,7 +524,7 @@ static int _logging_buffer( const char* section, const unsigned level, const cha
 
     if (logging->m_state != LOGGING_STATE_READY)
         return -EINVAL;
-    
+
     rq = ( logging_request_t* )queue_content_sl_new_opt_append( &logging->m_rq_proc_queue, GFP_NOIO, len );
     if (NULL == rq){
         pr_err( "ERR %s:%s Cannot allocate memory for logging\n", MODULE_NAME, SECTION );
@@ -543,7 +543,7 @@ static int _logging_buffer( const char* section, const unsigned level, const cha
     if ((len != 0) && (buff != NULL))
         memcpy( rq->m_buff, buff, len );
     rq->m_buff[len] = '\n';
-    
+
     if (SUCCESS == queue_sl_push_back( &logging->m_rq_proc_queue, &rq->content )){
         wake_up( &logging->m_new_rq_event );
         return SUCCESS;
@@ -605,7 +605,7 @@ void log_s( const char* section, const unsigned level, const char* s )
     if (SUCCESS != _logging_buffer(section, level, s, linesize)){
         _log_kernel_tr( section, s );
     }
-    
+
 }
 
 void log_s_s( const char* section, const unsigned level, const char* s1, const char* s2 )
@@ -690,10 +690,10 @@ void log_s_uuid(const char* section, const unsigned level, const char* s, const 
 {
     char _tmp[MAX_LINE_SIZE];
 
-    snprintf(_tmp, sizeof(_tmp), "%s[%08x-%04x-%04x-%04x-%02x%02x%02x%02x%02x%02x]", s, 
-        (unsigned int*)(&uuid->b[0]), 
-        (unsigned short*)(&uuid->b[4]), 
-        (unsigned short*)(&uuid->b[6]), 
+    snprintf(_tmp, sizeof(_tmp), "%s[%08x-%04x-%04x-%04x-%02x%02x%02x%02x%02x%02x]", s,
+        (unsigned int*)(&uuid->b[0]),
+        (unsigned short*)(&uuid->b[4]),
+        (unsigned short*)(&uuid->b[6]),
         (unsigned short*)(&uuid->b[8]),
         uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14], uuid->b[15]);
     log_s(section, level, _tmp);
@@ -718,7 +718,7 @@ void log_s_bytes(const char* section, const unsigned level, const unsigned char*
     }
     _tmp[pos] = '\0';
     log_s(section, level, _tmp);
-    
+
 }
 
 void log_vformat(const char* section, const int level, const char *frm, va_list args)

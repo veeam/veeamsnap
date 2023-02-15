@@ -383,12 +383,7 @@ int _snapimage_ioctl( struct block_device *bdev, fmode_t mode, unsigned cmd, uns
         break;
         case CDROM_GET_CAPABILITY: //0x5331  / * get capabilities * /
         {
-            struct gendisk *disk = bdev->bd_disk;
-
-            if (bdev->bd_disk && (disk->flags & GENHD_FL_CD))
-                res = SUCCESS;
-            else
-                res = -EINVAL;
+            res = -EINVAL;
         }
         break;
 #ifdef SNAPIMAGE_TRACER
@@ -571,7 +566,7 @@ int snapimage_processor_thread( void *data )
     snapimage_t *image = data;
 
     log_tr_format( "Snapshot image thread for device [%d:%d] start", MAJOR( image->image_dev ), MINOR( image->image_dev ) );
-#ifdef VEEAMSNAP_INT_ADD_DISK
+#ifdef HAVE_ADD_DISK_RESULT
     res = add_disk(image->disk);
     if (res) {
         log_err_d("Failed to add snapshot image disk. errno=", res);
@@ -920,9 +915,11 @@ int snapimage_create( dev_t original_dev )
 
         log_tr_format( "Snapshot image disk name [%s]", disk->disk_name );
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0)
+#ifdef GENHD_FL_NO_PART_SCAN
         disk->flags |= GENHD_FL_NO_PART_SCAN;
-        //disk->flags |= GENHD_FL_NATIVE_CAPACITY;
-        //disk->flags |= GENHD_FL_SUPPRESS_PARTITION_INFO;
+#else
+        disk->flags |= GENHD_FL_NO_PART;
+#endif
         disk->flags |= GENHD_FL_REMOVABLE;
 #endif
 
