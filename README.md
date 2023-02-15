@@ -3,17 +3,17 @@ Veeam Agent for Linux kernel module
 
 ## Disclaimer
 The project is deprecated.
-The module will not support kernels 5.18 and later. It is replaced by the [blksnap](https://github.com/veeam/blksnap) project, the purpose of which is to offer it to the upstream.
+The module will not support kernels 6.2 and later. It is replaced by the [blksnap](https://github.com/veeam/blksnap) project, the purpose of which is to offer it to the upstream.
 
 ## Description
 This kernel module implements snapshot and changed block tracking functionality used by Veeam Agent for Linux – simple and FREE backup agent designed to ensure the Availability of your Linux server instances, whether they reside in the public cloud or on premises.
 
-## How to compile and load 
-Type "make all" command to compile the module. 
+## How to compile and load
+Type "make all" command to compile the module.
 Use "make load" and "make unload" commands to load and unload the module.
 
-## Compatibility 
-This module supports Linux kernels from 2.6.32 to 5.16-rc6.
+## Compatibility
+This module supports Linux kernels from 2.6.32 to 6.1.
 
 There are some problems with BFQ up to 5.2
 
@@ -23,4 +23,4 @@ For more information, please visit:<br />
 • Veeam community forums: https://forums.veeam.com/veeam-agent-for-linux-f41/<br />
 
 ## Maintainer
-Veeam Software Group GmbH veeam_team@veeam.com 
+Veeam Software Group GmbH veeam_team@veeam.com
