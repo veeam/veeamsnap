@@ -6,9 +6,9 @@
 // these values are sed'ed so they may be empty
 
 #define FILEVER_MAJOR 6
-#define FILEVER_MINOR 0
+#define FILEVER_MINOR 1
 #define FILEVER_REVISION 0
-#define FILEVER_BUILD 1060
+#define FILEVER_BUILD 1498
 
 #if (FILEVER_MAJOR+0) == 0
 #undef FILEVER_MAJOR

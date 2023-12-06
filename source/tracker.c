@@ -252,7 +252,7 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
         else
             tracker_cbt_start(tracker, snapshot_id, cbt_map);
 
-#ifdef VEEAMSNAP_BLK_FREEZE
+#if defined(VEEAMSNAP_BLK_FREEZE)
         result = blk_freeze_bdev( tracker->original_dev_id, tracker->target_dev, &superblock );
 #else
         result = freeze_bdev(tracker->target_dev);
@@ -262,12 +262,12 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
             break;
         }
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-        result = tracker_disk_ref(tracker->target_dev->bd_disk, &tracker->tr_disk);
+        result = tracker_disk_create_or_get(tracker->target_dev->bd_disk, &tracker->tr_disk);
 #else
-        result = tracker_disk_ref(tracker->target_dev->bd_disk->queue, &tracker->tr_disk);
+        result = tracker_disk_create_or_get(tracker->target_dev->bd_disk->queue, &tracker->tr_disk);
 #endif
 
-#ifdef VEEAMSNAP_BLK_FREEZE
+#if defined(VEEAMSNAP_BLK_FREEZE)
         superblock = blk_thaw_bdev( tracker->original_dev_id, tracker->target_dev, superblock );
 #else
         result = thaw_bdev(tracker->target_dev);
@@ -305,15 +305,15 @@ int _tracker_remove( tracker_t* tracker )
         if (tracker->is_unfreezable)
             down_write(&tracker->unfreezable_lock);
         else {
-#ifdef VEEAMSNAP_BLK_FREEZE
+#if defined(VEEAMSNAP_BLK_FREEZE)
             result = blk_freeze_bdev(tracker->original_dev_id, tracker->target_dev, &superblock);
 #else
             result = freeze_bdev(tracker->target_dev);
 #endif
         }
 
-        if (NULL != tracker->tr_disk){
-            tracker_disk_unref( tracker->tr_disk );
+        if (NULL != tracker->tr_disk) {
+            tracker_disk_put(tracker->tr_disk);
             tracker->tr_disk = NULL;
         }
         if (tracker->is_unfreezable)

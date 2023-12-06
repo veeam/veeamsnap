@@ -14,6 +14,23 @@
 #define SECTION "tracking  "
 #include "log_format.h"
 
+static atomic_t tracking_refcnt = ATOMIC_INIT(1);
+
+static inline void tracking_fail(struct bio* bio)
+{
+    __WARN();
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,3,0)
+    bio_endio(bio, -EAGAIN);
+#else
+#ifdef BLK_STS_OK
+    bio->bi_status = BLK_STS_AGAIN;
+#else
+    bio->bi_error = -EAGAIN;
+#endif
+    bio_endio(bio);
+#endif
+}
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
 static inline void tracking_original_make_request(tracker_disk_t* tr_disk, struct request_queue *q, struct bio *bio)
 {
@@ -82,6 +99,22 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
     tracker_disk_t* tr_disk = NULL;
     snapdata_collector_t* collector = NULL;
     tracker_t* tracker = NULL;
+
+    if (!atomic_inc_not_zero(&tracking_refcnt)) {
+        tracking_fail(bio);
+
+#if  LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
+
+#ifdef HAVE_MAKE_REQUEST_INT
+        return -EAGAIN;
+#endif
+
+#elif defined(VEEAMSNAP_VOID_SUBMIT_BIO)
+        return;
+#else
+        return result;
+#endif
+    }
 
     bio_get(bio);
 
@@ -199,12 +232,14 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 #endif
         }
 
-    }else {
-        log_err("CRITICAL! Cannot find tracker disk");
-        bio_io_error(bio);
+    } else {
+        /* Cannot find tracker disk */
+        tracking_fail(bio);
     }
 
     bio_put(bio);
+
+    WARN_ON(atomic_dec_return(&tracking_refcnt) < 0);
 
 #if  LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
 
@@ -292,9 +327,9 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
             sectStart = blk_dev_get_start_sect(target_dev);
             sectEnd = blk_dev_get_capacity(target_dev) + sectStart;
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-            if (SUCCESS == tracker_disk_find(target_dev->bd_disk, &tr_disk))
+            if (SUCCESS == tracker_disk_find_and_get(target_dev->bd_disk, &tr_disk))
 #else
-            if (SUCCESS == tracker_disk_find(target_dev->bd_disk->queue, &tr_disk))
+            if (SUCCESS == tracker_disk_find_and_get(target_dev->bd_disk->queue, &tr_disk))
 #endif
             {
                 tracker_t* old_tracker = NULL;
@@ -306,34 +341,16 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
                     result = tracker_remove(old_tracker);
                     if (SUCCESS != result){
                         log_err_d("Failed to remove the old tracker. errno=", result);
+                        tracker_disk_put(tr_disk);
                         break;
                     }
                 }
+                tracker_disk_put(tr_disk);
             }
 
             result = tracker_create(snapshot_id, dev_id, cbt_block_size_degree, NULL, &tracker);
             if (SUCCESS != result)
                 log_err_d("Failed to create tracker. errno=", result);
-            else
-            {
-                char dev_name[BDEVNAME_SIZE + 1];
-                memset(dev_name, 0, BDEVNAME_SIZE + 1);
-                if (bdevname(target_dev, dev_name))
-                    log_tr_s("Add to tracking device ", dev_name);
-/*
-                if (target_dev->bd_part && target_dev->bd_part->info){
-                    if (target_dev->bd_part->info->uuid)
-                        log_tr_s("partition uuid: ", target_dev->bd_part->info->uuid);
-                    if (target_dev->bd_part->info->volname)
-                        log_tr_s("volume name: ", target_dev->bd_part->info->volname);
-                }
-*/
-                if (target_dev->bd_super){
-                    log_tr_s("fs id: ", target_dev->bd_super->s_id);
-                }
-                else
-                    log_tr("fs not found");
-            }
         } while (false);
 
         if (target_dev)
@@ -427,4 +444,22 @@ int tracking_read_cbt_bitmap( dev_t dev_id, unsigned int offset, size_t length, 
         log_err_d( "Failed to find devices under tracking. errno=", result );
 
     return result;
+}
+
+void tracking_done(void)
+{
+    int cnt = 120;
+
+    if (atomic_dec_return(&tracking_refcnt) < 0) {
+        __WARN();
+        return;
+    }
+
+    while (atomic_read(&tracking_refcnt) > 0) {
+        if (cnt-- == 0) {
+            __WARN();
+            return;
+        }
+        schedule_timeout(HZ);
+    }
 }

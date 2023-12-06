@@ -16,7 +16,8 @@ typedef blk_qc_t (make_request_fn) (struct bio *bio);
 
 typedef struct _tracker_disk_s
 {
-    content_sl_t content;
+    struct list_head link;
+    struct kref kref;
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
     struct gendisk *disk;
     struct block_device_operations fops;
@@ -25,22 +26,35 @@ typedef struct _tracker_disk_s
     make_request_fn* original_make_request_fn;
     struct request_queue *queue;
 #endif
-    atomic_t atomic_ref_count;
-
+    
 }tracker_disk_t;
 
-int tracker_disk_init(void );
-void tracker_disk_done(void );
-
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk);
-int tracker_disk_find(struct gendisk *disk, tracker_disk_t** ptracker_disk);
+int tracker_disk_create_or_get(struct gendisk *disk, tracker_disk_t** ptracker_disk);
+int __tracker_disk_find(struct gendisk* disk, tracker_disk_t** ptracker_disk, bool kref);
+static inline int tracker_disk_find(struct gendisk* disk, tracker_disk_t** ptracker_disk)
+{
+    return __tracker_disk_find(disk, ptracker_disk, false);
+};
+static inline int tracker_disk_find_and_get(struct gendisk* disk, tracker_disk_t** ptracker_disk)
+{
+    return __tracker_disk_find(disk, ptracker_disk, true);
+};
 #else
-int tracker_disk_ref(struct request_queue *q, tracker_disk_t** ptracker_disk);
-int tracker_disk_find(struct request_queue *q, tracker_disk_t** ptracker_disk);
+int tracker_disk_create_or_get(struct request_queue *q, tracker_disk_t** ptracker_disk);
+int __tracker_disk_find(struct request_queue* q, tracker_disk_t** ptracker_disk, bool kref);
+static inline int tracker_disk_find(struct request_queue* q, tracker_disk_t** ptracker_disk)
+{
+    return __tracker_disk_find(q, ptracker_disk, false);
+};
+static inline int tracker_disk_find_and_get(struct request_queue* q, tracker_disk_t** ptracker_disk)
+{
+    return __tracker_disk_find(q, ptracker_disk, true);
+};
 #endif
 
-void tracker_disk_unref(tracker_disk_t* ptracker_disk);
+void tracker_disk_put(tracker_disk_t* ptracker_disk);
+
 
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 #include "kernel_entries.h"

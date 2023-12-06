@@ -24,7 +24,11 @@ uint64_t _notify_counter = 0;
 
 int get_veeamsnap_major(void);
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,32)
+#if defined(HAVE_DEFINE_CLASS_CREATE_H)
 static ssize_t major_show(struct class *class, struct class_attribute *attr, char *buf)
+#else
+static ssize_t major_show(const struct class *class, const struct class_attribute *attr, char *buf)
+#endif
 #else
 static ssize_t major_show(struct class *class, char *buf)
 #endif
@@ -36,7 +40,11 @@ static ssize_t major_show(struct class *class, char *buf)
 // blkdev_notify
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,32)
+#if defined(HAVE_DEFINE_CLASS_CREATE_H)
 static ssize_t blkdev_notify_show(struct class *class, struct class_attribute *attr, char *buf)
+#else
+static ssize_t blkdev_notify_show(const struct class *class, const struct class_attribute *attr, char *buf)
+#endif
 #else
 static ssize_t blkdev_notify_show(struct class *class, char *buf)
 #endif
@@ -54,7 +62,11 @@ enum ENotifyCommandType
 };
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,32)
+#if defined(HAVE_DEFINE_CLASS_CREATE_H)
 static ssize_t blkdev_notify_store(struct class *class, struct class_attribute *attr, const char *buf, size_t count)
+#else
+static ssize_t blkdev_notify_store(const struct class *class, const struct class_attribute *attr, const char *buf, size_t count)
+#endif
 #else
 static ssize_t blkdev_notify_store(struct class *class, const char *buf, size_t count)
 #endif
@@ -244,8 +256,8 @@ struct class_attribute class_attr_##_name = __ATTR_RO(_name)
 #endif
 
 #ifdef PERSISTENT_CBT
-CLASS_ATTR_RW(blkdev_notify);
-CLASS_ATTR_RO(major);
+static CLASS_ATTR_RW(blkdev_notify);
+static CLASS_ATTR_RO(major);
 #endif
 
 #ifdef VEEAMSNAP_SYSFS_PARAMS
@@ -257,7 +269,11 @@ static struct class *veeamsnap_class = NULL;
 int ctrl_sysfs_init(struct device **p_device)
 {
     int res;
+#if defined(HAVE_DEFINE_CLASS_CREATE_H)
     veeamsnap_class = class_create(THIS_MODULE, "veeamsnap");
+#else
+    veeamsnap_class = class_create("veeamsnap");
+#endif
     if (IS_ERR(veeamsnap_class)){
         res = PTR_ERR(veeamsnap_class);
         log_err_d("bad class create. Error code ", 0-res);

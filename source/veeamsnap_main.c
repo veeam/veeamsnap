@@ -16,7 +16,6 @@
 #include "snapstore_device.h"
 
 #include "snapshot.h"
-#include "tracker_queue.h"
 #include "tracker.h"
 #include "tracking.h"
 #include "sparse_bitmap.h"
@@ -65,7 +64,7 @@
 #endif
 
 #ifdef OS_RELEASE_SUSE
-#pragma message "OS_RELEASE_SUSE defined" 
+#pragma message "OS_RELEASE_SUSE defined"
 #endif
 
 #ifdef  HAVE_MAKE_REQUEST_INT
@@ -119,6 +118,12 @@
 #endif
 #ifdef HAVE_ADD_DISK_RESULT
 #pragma message "HAVE_ADD_DISK_RESULT defined"
+#endif
+#ifdef HAVE_DEFINE_CLASS_CREATE_H
+#pragma message "HAVE_DEFINE_CLASS_CREATE_H defined"
+#endif
+#ifdef HAVE_BLK_HOLDER_OPS
+#pragma message "HAVE_BLK_HOLDER_OPS defined"
 #endif
 
 static int g_param_zerosnapdata = 0;
@@ -440,6 +445,10 @@ int __init veeamsnap_init(void)
     log_tr("Snapshot image tracing is available");
 #endif
 
+    result = ke_init();
+    if (result)
+        return result;
+
     page_arrays_init( );
 
     ctrl_init();
@@ -481,9 +490,6 @@ int __init veeamsnap_init(void)
             break;
 
         if ((result = tracker_init( )) != SUCCESS)
-            break;
-
-        if ((result = tracker_disk_init( )) != SUCCESS)
             break;
 
         if ((result = snapshot_Init( )) != SUCCESS)
@@ -580,8 +586,7 @@ void __exit veeamsnap_exit(void)
 
         result = tracker_done( );
         if (SUCCESS == result){
-            tracker_disk_done( );
-
+            tracking_done();
 #ifdef PERSISTENT_CBT
             cbt_persistent_done();
 #endif

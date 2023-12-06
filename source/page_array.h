@@ -12,7 +12,7 @@ typedef struct page_info_s{
 typedef struct page_array_s
 {
     size_t pg_cnt;
-    page_info_t pg[0];
+    page_info_t pg[];
 }page_array_t;
 
 void page_arrays_init( void );

@@ -39,7 +39,7 @@ typedef struct trace_page_s
     struct page* pg;
     unsigned int load_inx;
     unsigned int store_inx;
-    trace_record_t records[0];
+    trace_record_t records[];
 }trace_page_t;
 
 #define TRACE_RECORDS_PER_PAGE ((PAGE_SIZE - offsetof(trace_page_t, records)) / sizeof(trace_record_t))
@@ -80,7 +80,6 @@ typedef struct snapimage_s{
     volatile sector_t last_write_size;
 
     struct mutex open_locker;
-    struct block_device* open_bdev;
     volatile size_t open_cnt;
 #ifdef SNAPIMAGE_TRACER
     struct list_head trace_list;
@@ -240,31 +239,32 @@ void image_trace_done(snapimage_t* image)
 
 int _snapimage_destroy( snapimage_t* image );
 
-int _snapimage_open( struct block_device *bdev, fmode_t mode )
+#if defined(HAVE_BLK_HOLDER_OPS)
+int _snapimage_open(struct gendisk *disk, fmode_t mode)
 {
+#else
+int _snapimage_open(struct block_device *bdev, fmode_t mode)
+{
+    struct gendisk* disk = bdev->bd_disk;
+#endif
     int res = SUCCESS;
 
-    //log_tr_format( "Snapshot image open device [%d:%d]. Block device object 0x%p", MAJOR( bdev->bd_dev ), MINOR( bdev->bd_dev ), bdev );
-    if (bdev->bd_disk == NULL){
-        log_err_dev_t( "Unable to open snapshot image: bd_disk is NULL. Device ", bdev->bd_dev );
-        log_err_p( "Block device object ", bdev );
+    if (disk == NULL){
+        log_err("Unable to open snapshot image: disk is NULL.");
         return -ENODEV;
     }
 
     down_read(&snap_image_destroy_lock);
     do{
-        snapimage_t* image = bdev->bd_disk->private_data;
+        snapimage_t* image = disk->private_data;
         if (image == NULL){
-            log_err_p( "Unable to open snapshot image: private data is not initialized. Block device object ", bdev );
+            log_err_p("Unable to open snapshot image: private data is not initialized. Device ", disk->disk_name);
             res = - ENODEV;
             break;
         }
 
         mutex_lock(&image->open_locker);
         {
-            if (image->open_cnt == 0)
-                image->open_bdev = bdev;
-
             image->open_cnt++;
         }
         mutex_unlock(&image->open_locker);
@@ -272,7 +272,6 @@ int _snapimage_open( struct block_device *bdev, fmode_t mode )
     up_read(&snap_image_destroy_lock);
     return res;
 }
-
 
 int _snapimage_getgeo( struct block_device* bdev, struct hd_geometry * geo )
 {
@@ -321,8 +320,10 @@ int _snapimage_getgeo( struct block_device* bdev, struct hd_geometry * geo )
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
 int _snapimage_close( struct gendisk *disk, fmode_t mode )
+#elif defined(HAVE_BLK_HOLDER_OPS)
+void _snapimage_close(struct gendisk *disk)
 #else
-void _snapimage_close( struct gendisk *disk, fmode_t mode )
+void _snapimage_close(struct gendisk *disk, fmode_t mode)
 #endif
 {
     if (disk->private_data != NULL){
@@ -330,15 +331,10 @@ void _snapimage_close( struct gendisk *disk, fmode_t mode )
         do{
             snapimage_t* image = disk->private_data;
 
-            //log_tr_format( "Snapshot image close device [%d:%d]. Block device object 0x%p", MAJOR( image->open_bdev->bd_dev ), MINOR( image->open_bdev->bd_dev ), image->open_bdev );
-
             mutex_lock( &image->open_locker );
             {
                 if (image->open_cnt > 0)
                     image->open_cnt--;
-
-                if (image->open_cnt == 0)
-                    image->open_bdev = NULL;
             }
             mutex_unlock( &image->open_locker );
         } while (false);
@@ -677,12 +673,7 @@ blk_qc_t _snapimage_make_request(struct request_queue *q, struct bio *bio)
     snapimage_t* image = q->queuedata;
 
     //bio_get( bio );
-#ifdef VEEAMSNAP_MQ_IO
-    if (unlikely(blk_mq_queue_stopped(q)))
-#else
-    if (unlikely(q->queue_flags & ((1 << QUEUE_FLAG_STOPPED) | (1 << QUEUE_FLAG_DEAD))))
-#endif
-    {
+    if (unlikely(blk_queue_stopped(q))) {
         log_tr_lx( "Failed to make snapshot image request. Queue already is not active. Queue flags=", q->queue_flags );
         _snapimage_bio_complete( bio, -ENODEV );
 
@@ -844,7 +835,6 @@ int snapimage_create( dev_t original_dev )
         image_trace_init(image);
 #endif
         mutex_init( &image->open_locker );
-        image->open_bdev = NULL;
         image->open_cnt = 0;
 
 #ifdef VEEAMSNAP_BLK_ALLOC_DISK 
@@ -1024,7 +1014,11 @@ int _snapimage_destroy( snapimage_t* image )
         image->disk = NULL;
         image->queue = NULL;
         disk->private_data = NULL;
+#if defined(HAVE_PUT_DISK)
+        put_disk(disk);
+#else
         blk_cleanup_disk(disk);
+#endif
     }
 #else
     if (image->queue) {

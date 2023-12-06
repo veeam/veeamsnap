@@ -83,9 +83,25 @@ EXTRA_CFLAGS += $(shell test -f $(srctree)/include/linux/genhd.h &&	           \
 	grep -qw "int add_disk" $(srctree)/include/linux/genhd.h &&                \
 		echo -D HAVE_ADD_DISK_RESULT)
 
-EXTRA_CFLAGS += $(shell test -f $(srctree)/include/linux/blkdev.h &&           \
-	grep -qw "int __must_check add_disk" $(srctree)/include/linux/blkdev.h &&               \
+EXTRA_CFLAGS += $(shell                                                        \
+	grep -qw "int __must_check add_disk" $(srctree)/include/linux/blkdev.h &&  \
 		echo -D HAVE_ADD_DISK_RESULT)
+
+EXTRA_CFLAGS += $(shell                                                        \
+	grep -qw "void put_disk" $(srctree)/include/linux/blkdev.h &&              \
+		echo -D HAVE_PUT_DISK)
+
+EXTRA_CFLAGS += $(shell test -f $(srctree)/include/linux/device/class.h &&     \
+	grep -qw "\#define class_create" $(srctree)/include/linux/device/class.h &&\
+		echo -D HAVE_DEFINE_CLASS_CREATE_H)
+
+EXTRA_CFLAGS += $(shell test -f $(srctree)/include/linux/device.h &&           \
+	grep -qw "\#define class_create" $(srctree)/include/linux/device.h &&      \
+		echo -D HAVE_DEFINE_CLASS_CREATE_H)
+
+EXTRA_CFLAGS += $(shell test -f $(srctree)/include/linux/blkdev.h &&           \
+	grep -qw "struct blk_holder_ops" $(srctree)/include/linux/blkdev.h &&      \
+		echo -D HAVE_BLK_HOLDER_OPS)
 
 default:
 	@echo Configuring...

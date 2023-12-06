@@ -76,6 +76,13 @@ static int _check_unmount_status(struct block_device* blk_dev, uint32_t* p_check
     return res;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,11,0)
+static int _check_is_mounted(struct block_device* blk_dev, bool* p_is_mounted)
+{
+    *p_is_mounted = blk_dev->bd_write_holder;
+    return SUCCESS;
+}
+#else
 static int _check_is_mounted(struct block_device* blk_dev, bool* p_is_mounted)
 {
     struct super_block* sb;
@@ -95,10 +102,13 @@ static int _check_is_mounted(struct block_device* blk_dev, bool* p_is_mounted)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,39,0)
     log_tr_uuid("fs uuid: ", (veeam_uuid_t*)&sb->s_uuid);
 #endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
     drop_super(sb);
+#endif
     *p_is_mounted = true;
     return SUCCESS;
 }
+#endif
 
 void cbt_checkfs_status_set(cbt_checkfs_status_t* checkfs_status, dev_t dev_id, int errcode, char* message)
 {

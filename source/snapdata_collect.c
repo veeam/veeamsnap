@@ -145,33 +145,31 @@ static int _collector_start(snapdata_collector_t* collector)
 {
     int res = SUCCESS;
 
-    {
 #ifdef VEEAMSNAP_BLK_FREEZE
-        struct super_block* sb = NULL;
-        res = blk_freeze_bdev( collector->dev_id, collector->device, &sb);
+    struct super_block* sb = NULL;
+    res = blk_freeze_bdev( collector->dev_id, collector->device, &sb);
 #else
-        res = freeze_bdev(collector->device);
+    res = freeze_bdev(collector->device);
 #endif
+    if (res)
+        return res;
 
-        if (res == SUCCESS){
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-            res = tracker_disk_ref(collector->device->bd_disk, &collector->tr_disk);
+    res = tracker_disk_create_or_get(collector->device->bd_disk, &collector->tr_disk);
 #else
-            res = tracker_disk_ref(collector->device->bd_disk->queue, &collector->tr_disk);
+    res = tracker_disk_create_or_get(collector->device->bd_disk->queue, &collector->tr_disk);
 #endif
-            if (res == SUCCESS)
-                collector_list_push_back(&ActiveCollectors, collector);
-            else
-                log_err("Unable to initialize snapstore collector: failed to reference tracker disk");
+    if (res == SUCCESS)
+        collector_list_push_back(&ActiveCollectors, collector);
+    else
+        log_err("Unable to initialize snapstore collector: failed to reference tracker disk");
 
 #ifdef VEEAMSNAP_BLK_FREEZE
-            sb = blk_thaw_bdev(collector->dev_id, collector->device, sb);
+    sb = blk_thaw_bdev(collector->dev_id, collector->device, sb);
 #else
-            if (thaw_bdev(collector->device) != SUCCESS)
-                log_err("Failed to thaw block device");
+    if (thaw_bdev(collector->device) != SUCCESS)
+        log_err("Failed to thaw block device");
 #endif
-        }
-    }
 
     return res;
 }
@@ -194,7 +192,7 @@ static void collector_stop( snapdata_collector_t* collector )
     if (res != SUCCESS)
         log_err("Failed to treeze block device");
 
-    tracker_disk_unref( collector->tr_disk );
+    tracker_disk_put( collector->tr_disk );
     collector->tr_disk = NULL;
 
     collector_list_pull(&ActiveCollectors, collector);
@@ -343,12 +341,12 @@ int snapdata_collect_LocationGet( dev_t dev_id, rangelist_t* rangelist, size_t* 
     mutex_lock(&collector->locker);
     {
 #ifdef SNAPDATA_SPARSE_CHANGES
-        res = sparsebitmap_convert2rangelist(&collector->changes_sparse, rangelist, collector->changes_sparse.start_index);
+    res = sparsebitmap_convert2rangelist(&collector->changes_sparse, rangelist, collector->changes_sparse.start_index);
 #else
-        res = page_array_convert2rangelist(collector->changes, rangelist, collector->start_index, collector->length);
+    res = page_array_convert2rangelist(collector->changes, rangelist, collector->start_index, collector->length);
 #endif
-        collected_size = atomic64_read(&collector->collected_size);
-        already_set_size = atomic64_read(&collector->already_set_size);
+    collected_size = atomic64_read(&collector->collected_size);
+    already_set_size = atomic64_read(&collector->already_set_size);
     }
     mutex_unlock(&collector->locker);
 

@@ -14,7 +14,7 @@ typedef struct cbt_storage_page_s
     uint64_t tv_sec;    // seconds
     uint32_t tv_nsec;    // nanoseconds
     uint32_t padding0;
-    unsigned char data[0];
+    unsigned char data[];
 } cbt_storage_page_t;
 #pragma pack(pop)
 

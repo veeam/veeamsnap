@@ -32,6 +32,8 @@ void _snapstore_destroy( snapstore_t* snapstore )
     sector_t fill_status;
 
     log_tr_uuid( "Destroy snapstore with id=", (&snapstore->id) );
+    log_tr_format("%lld MiB was written to the images",
+        (atomic64_read(&snapstore->state_sectors_image_written) >> (20 - SECTOR_SHIFT)));
 
     _snapstore_check_halffill( snapstore, &fill_status );
 
@@ -103,6 +105,7 @@ int snapstore_create( veeam_uuid_t* id, dev_t snapstore_dev_id, dev_t* dev_id_se
     snapstore->empty_limit = (sector_t)(64 * (1024 * 1024 / SECTOR_SIZE)); //by default value
     atomic_set(&snapstore->halffilled, 0);
     atomic_set(&snapstore->overflowed, 0);
+    atomic64_set(&snapstore->state_sectors_image_written, 0);
 
     if (snapstore_dev_id == 0){
         log_tr( "Memory snapstore create" );
@@ -745,7 +748,7 @@ int snapstore_redirect_write( blk_redirect_bio_endio_t* rq_endio, snapstore_t* s
                     log_err_sect( "Failed to write to snapstore file. Sector #", pos );
                     break;
                 }
-
+                atomic64_add(len, &snapstore->state_sectors_image_written);
                 current_ofs += len;
                 block_ofs = 0;
             }
@@ -781,7 +784,7 @@ int snapstore_redirect_write( blk_redirect_bio_endio_t* rq_endio, snapstore_t* s
                     log_err_sect( "Failed to write to snapstore file. Sector #", pos );
                     break;
                 }
-
+                atomic64_add(len, &snapstore->state_sectors_image_written);
                 current_ofs += len;
                 block_ofs = 0;
             }

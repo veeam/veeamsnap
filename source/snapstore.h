@@ -31,6 +31,8 @@ typedef struct snapstore_s
 
     atomic_t halffilled;
     atomic_t overflowed;
+
+    atomic64_t state_sectors_image_written;
 }snapstore_t;
 
 

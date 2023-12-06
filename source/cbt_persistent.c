@@ -906,7 +906,12 @@ void cbt_persistent_device_attach(char* dev_name, char* dev_path)
             log_err("Cannot find device by name");
             return;
         }
-        bdev = blkdev_get_by_dev(dev_id, FMODE_READ | FMODE_WRITE, NULL);
+        bdev = blkdev_get_by_dev(dev_id, FMODE_READ | FMODE_WRITE,
+#if defined(HAVE_BLK_HOLDER_OPS)
+            NULL, NULL);
+#else
+            NULL);
+#endif
         if (IS_ERR(bdev)){
             log_err_dev_t("Cannot open device ", dev_id);
             return;

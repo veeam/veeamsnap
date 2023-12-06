@@ -1,10 +1,14 @@
 // Copyright (c) Veeam Software Group GmbH
 
 #include "stdafx.h"
+#include <linux/kprobes.h>
 #include "kernel_entries.h"
 
+#define SECTION "k_entries "
+
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO) || defined(VEEAMSNAP_MQ_REQUEST)
 struct kernel_entry {
-    const char* name;
+    char* name;
     void* addr;
 };
 
@@ -66,3 +70,44 @@ void* ke_get_addr(int ke_inx)
         return NULL;
     return ke_addr_table[ke_inx].addr;
 }
+
+static void *get_symbol_via_kprobe(char* name)
+{
+    void* addr;
+    struct kprobe kp;
+    int ret;
+
+    memset(&kp, 0, sizeof(kp));
+    kp.symbol_name = name;
+    ret = register_kprobe(&kp);
+    if (ret)
+        return ERR_PTR(ret);
+
+    addr = kp.addr;
+    unregister_kprobe(&kp);
+
+    return addr;
+}
+
+int ke_init(void)
+{
+    int i;
+
+    for (i = 0; i < KE_SIZE; i++) {
+        if (!ke_addr_table[i].addr) {
+            char* name = ke_addr_table[i].name;
+            void *addr;
+
+            addr = get_symbol_via_kprobe(name);
+            if (IS_ERR(addr)) {
+                log_err_s("Failed to get address of function ", name);
+                return PTR_ERR(addr);
+            }
+
+            ke_addr_table[i].addr = addr;
+            log_tr_s("Detected address for ", name);
+        }
+    }
+    return 0;
+}
+#endif

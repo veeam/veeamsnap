@@ -8,34 +8,8 @@
 #define SECTION "tracker   "
 #include "log_format.h"
 
-container_sl_t tracker_disk_container;
-
-int tracker_disk_init(void)
-{
-    container_sl_init(&tracker_disk_container, sizeof(tracker_disk_t));
-    return SUCCESS;
-}
-
-void tracker_disk_done(void)
-{
-    content_sl_t* content;
-
-    while (NULL != (content = container_sl_first( &tracker_disk_container ))){
-#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-        struct gendisk* disk = ((tracker_disk_t*)content)->disk;
-
-        blk_mq_freeze_queue(disk->queue);
-#endif
-        container_sl_free(content);
-#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-        blk_mq_unfreeze_queue(disk->queue);
-#endif
-    }
-
-    if (SUCCESS != container_sl_done(&tracker_disk_container))
-        log_err("Failed to free up tracker queue container");
-    return ;
-}
+static LIST_HEAD(tracker_disk_container);
+static DEFINE_SPINLOCK(tracker_disk_container_lock);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
 
@@ -55,59 +29,69 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio );
 
 // find or create new tracker queue
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-int tracker_disk_ref(struct gendisk *disk, tracker_disk_t** ptracker_disk)
+int tracker_disk_create_or_get(struct gendisk *disk, tracker_disk_t** ptracker_disk)
 #else
-int tracker_disk_ref(struct request_queue *queue, tracker_disk_t** ptracker_disk)
+int tracker_disk_create_or_get(struct request_queue *queue, tracker_disk_t** ptracker_disk)
 #endif
 {
     int res = SUCCESS;
     tracker_disk_t* tr_disk = NULL;
 
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-    res = tracker_disk_find(disk, &tr_disk);
+    res = tracker_disk_find_and_get(disk, &tr_disk);
 #else
-    res = tracker_disk_find(queue, &tr_disk);
+    res = tracker_disk_find_and_get(queue, &tr_disk);
 #endif
     if ((res < 0) && (-ENODATA != res)){
         log_err_d( "Cannot to find tracker disk. errno=", res );
         return res;
     }
-    if ((SUCCESS == res) && atomic_read(&tr_disk->atomic_ref_count)) {
+    if (SUCCESS == res) {
         log_tr("Tracker disk already exists");
-
         *ptracker_disk = tr_disk;
-        atomic_inc( &tr_disk->atomic_ref_count );
-
         return res;
     }
 
-    if (-ENODATA == res){
-        log_tr("New tracker disk create");
+    log_tr("New tracker disk create");
 
-        tr_disk = (tracker_disk_t*)container_sl_new(&tracker_disk_container);
-        if (NULL==tr_disk)
-            return -ENOMEM;
+    tr_disk = kzalloc(sizeof(tracker_disk_t), GFP_NOIO );
+    if (NULL==tr_disk)
+        return -ENOMEM;
 
-        atomic_set( &tr_disk->atomic_ref_count, 0 );
+    INIT_LIST_HEAD(&tr_disk->link);
+    kref_init(&tr_disk->kref);
 
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-        log_tr("The disk's fops is being substituted.");
-
-        if (!ke_get_addr(KE_BLK_MQ_SUBMIT_BIO)) {
-            log_err("TBD: Kernel entry 'blk_mq_submit_bio' is not initialized.");
-            container_sl_free(&tr_disk->content);
-            return -ENOSYS;
-        }
-
-        /* copy fops from original disk except submit_bio */
-        tr_disk->original_fops = (struct block_device_operations *)(disk->fops);
-        memcpy(&tr_disk->fops, tr_disk->original_fops, sizeof(struct block_device_operations));
-        tr_disk->fops.submit_bio = tracking_make_request;
-        barrier();
+    if (!ke_get_addr(KE_BLK_MQ_SUBMIT_BIO)) {
+        log_err("Kernel entry 'blk_mq_submit_bio' is not initialized.");
+        kfree(tr_disk);
+        return -ENOSYS;
     }
+    log_tr("The disk's fops is being substituted.");
+#else
+#if defined(VEEAMSNAP_MQ_REQUEST)
+    if (!ke_get_addr(KE_BLK_MQ_MAKE_REQUEST)) {
+        log_err("Kernel entry 'blk_mq_make_request' is not initialized.");
+        kfree(tr_disk);
+        return -ENOSYS;
+    }
+#endif
+    log_tr("Tracker disk is being detached.");
+#endif
 
+    spin_lock(&tracker_disk_container_lock);
+    list_add_tail(&tr_disk->link, &tracker_disk_container);
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+    tr_disk->disk = disk;
+
+    /* copy fops from original disk except submit_bio */
+    tr_disk->original_fops = (struct block_device_operations *)(disk->fops);
+    memcpy(&tr_disk->fops, tr_disk->original_fops, sizeof(struct block_device_operations));
+    tr_disk->fops.submit_bio = tracking_make_request;
+    barrier();
+    
     /* lock cpu */
-    preempt_disable();
+    //cant_sleep();
     local_irq_disable();
     barrier();
 
@@ -124,93 +108,92 @@ int tracker_disk_ref(struct request_queue *queue, tracker_disk_t** ptracker_disk
 
     /* unlock cpu */
     local_irq_enable();
-    preempt_enable();
-
-    tr_disk->disk = disk;
 #else
-
-#if defined(VEEAMSNAP_MQ_REQUEST)
-        if (!ke_get_addr(KE_BLK_MQ_MAKE_REQUEST)) {
-            log_err("TBD: Kernel entry 'blk_mq_make_request' is not initialized.");
-            container_sl_free(&tr_disk->content);
-            return -ENOSYS;
-        }
-#endif
-        tr_disk->original_make_request_fn = queue->make_request_fn;
-    }
-    queue->make_request_fn = tracking_make_request;
-
     tr_disk->queue = queue;
+    tr_disk->original_make_request_fn = queue->make_request_fn;
+    queue->make_request_fn = tracking_make_request;
 #endif
+    spin_unlock(&tracker_disk_container_lock);
 
     *ptracker_disk = tr_disk;
-    atomic_inc( &tr_disk->atomic_ref_count );
 
-    log_tr("New tracker disk was created");
+    log_tr("New tracker disk was created.");
 
     return SUCCESS;
 }
+
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-int tracker_disk_find( struct gendisk *disk, tracker_disk_t** ptracker_disk )
+int __tracker_disk_find(struct gendisk *disk, tracker_disk_t** ptracker_disk, bool kref)
 #else
-int tracker_disk_find( struct request_queue *queue, tracker_disk_t** ptracker_disk )
+int __tracker_disk_find(struct request_queue *queue, tracker_disk_t** ptracker_disk, bool kref)
 #endif
 {
     int result = -ENODATA;
-    content_sl_t* pContent = NULL;
-    tracker_disk_t* tr_disk = NULL;
+    
+    spin_lock(&tracker_disk_container_lock);
+    if (!list_empty(&tracker_disk_container)) {
+        tracker_disk_t* tr_disk;
 
-    CONTAINER_SL_FOREACH_BEGIN( tracker_disk_container, pContent )
-    {
-        tr_disk = (tracker_disk_t*)pContent;
+        list_for_each_entry(tr_disk, &tracker_disk_container, link) {
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-        if (tr_disk->disk == disk)
+            if (tr_disk->disk == disk)
 #else
-        if (tr_disk->queue == queue)
+            if (tr_disk->queue == queue)
 #endif
-        {
-            *ptracker_disk = tr_disk;
+            {
+                if (kref)
+                    kref_get(&tr_disk->kref);
+                *ptracker_disk = tr_disk;
 
-            result = SUCCESS;    //don`t continue
-            break;
+                result = SUCCESS;    //don`t continue
+                break;
+            }
         }
-    }CONTAINER_SL_FOREACH_END( tracker_disk_container );
+    }
+    spin_unlock(&tracker_disk_container_lock);
 
     return result;
 }
 
-void tracker_disk_unref(tracker_disk_t* tr_disk)
+void tracker_disk_free(struct kref* kref)
 {
-    if (atomic_dec_and_test(&tr_disk->atomic_ref_count)) {
+    tracker_disk_t* tr_disk = container_of(kref, tracker_disk_t, kref);
+
+    list_del(&tr_disk->link);
+
+    /* lock cpu */
+    //cant_sleep();
+    local_irq_disable();
+    barrier();
+
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-        struct gendisk *disk = tr_disk->disk;
-
-        log_tr("The disk's fops is being restored.");
-
-        /* lock cpu */
-        preempt_disable();
-        local_irq_disable();
+    {/* restore original disks fops */
+        unsigned long cr0 = disable_page_protection();
         barrier();
 
-        {/* restore original disks fops */
-            unsigned long cr0 = disable_page_protection();
-            barrier();
+        tr_disk->disk->fops = tr_disk->original_fops;
+        barrier();
 
-            disk->fops = tr_disk->original_fops;
-            barrier();
-
-            reenable_page_protection(cr0);
-        }
-
-        /* unlock cpu */
-        local_irq_enable();
-        preempt_enable();
+        reenable_page_protection(cr0);
+    }
 #else
-        tr_disk->queue->make_request_fn = tr_disk->original_make_request_fn;
+    tr_disk->queue->make_request_fn = tr_disk->original_make_request_fn;
+#endif
+    /* unlock cpu */
+    local_irq_enable();
+
+#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
+    log_tr("The disk's fops is being restored.");
+#else
+    log_tr("Tracker disk detached.");
 #endif
 
-        log_tr("Tracker disk detached");
-    }
-    else
-        log_tr("Tracker disk is in use");
+    kfree(tr_disk);
+}
+
+void tracker_disk_put(tracker_disk_t* ptracker_disk)
+{
+    spin_lock(&tracker_disk_container_lock);
+    kref_put(&ptracker_disk->kref, tracker_disk_free);
+    spin_unlock(&tracker_disk_container_lock);
 }

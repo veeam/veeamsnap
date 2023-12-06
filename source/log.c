@@ -51,7 +51,7 @@ typedef struct _logging_request_t
     unsigned m_level;
 
     size_t m_len;
-    char m_buff[1];//must be last entry
+    char m_buff[];//must be last entry
 }logging_request_t;
 
 #define LOGGING_STATE_READY 0
@@ -85,7 +85,7 @@ typedef struct _logging_t
 static logging_t g_logging;
 
 
-static void _log_kernel( const char* section, char* level_string, const char* s )
+static void _log_kernel( const char* section, const char* level_string, const char* s )
 {
     switch (get_debuglogging( )){
     case VEEAM_LL_HI: pr_err( "%s:%s | %s | %s\n", MODULE_NAME, section, level_string, s ); break;
@@ -381,8 +381,8 @@ static int _logging_process( logging_t* logging )
             mutex_lock( &logging->m_lock );
             res = __logging_filp_write( logging, timebuff, strlen( timebuff ) );
             if (res == SUCCESS){
-                rq->m_buff[rq->m_len] = '\n';
-                res = __logging_filp_write( logging, rq->m_buff, rq->m_len + 1 );
+                rq->m_buff[rq->m_len - 1] = '\n';
+                res = __logging_filp_write( logging, rq->m_buff, rq->m_len );
             }
             mutex_unlock( &logging->m_lock );
 #else
@@ -392,7 +392,7 @@ static int _logging_process( logging_t* logging )
                 //logging->m_state = LOGGING_STATE_ERROR;
 
                 if (rq->m_level == LOGGING_LEVEL_TR){
-                    rq->m_buff[rq->m_len] = '\0';
+                    rq->m_buff[rq->m_len - 1] = '\0';
                     _log_kernel_tr( rq->m_section, rq->m_buff );
                 }
             }
@@ -525,7 +525,7 @@ static int _logging_buffer( const char* section, const unsigned level, const cha
     if (logging->m_state != LOGGING_STATE_READY)
         return -EINVAL;
 
-    rq = ( logging_request_t* )queue_content_sl_new_opt_append( &logging->m_rq_proc_queue, GFP_NOIO, len );
+    rq = ( logging_request_t* )queue_content_sl_new_opt_append( &logging->m_rq_proc_queue, GFP_NOIO, len + 1);
     if (NULL == rq){
         pr_err( "ERR %s:%s Cannot allocate memory for logging\n", MODULE_NAME, SECTION );
         return -ENOMEM;
@@ -540,9 +540,10 @@ static int _logging_buffer( const char* section, const unsigned level, const cha
     ktime_get_real_ts64(&rq->m_time);
 #endif
     rq->m_len = len;
-    if ((len != 0) && (buff != NULL))
-        memcpy( rq->m_buff, buff, len );
-    rq->m_buff[len] = '\n';
+    if ((len != 0) && (buff != NULL)) {
+        memcpy(rq->m_buff, buff, len);
+        rq->m_len += 1;
+    }
 
     if (SUCCESS == queue_sl_push_back( &logging->m_rq_proc_queue, &rq->content )){
         wake_up( &logging->m_new_rq_event );
@@ -583,29 +584,34 @@ void logging_flush(void)
         schedule();
 }
 
+static inline const char *log_level_string(const unsigned int level)
+{
+    switch (level) {
+    case LOGGING_LEVEL_ERR:
+        return "ERR";
+    case LOGGING_LEVEL_WRN:
+        return "WRN";
+    default:
+        return "INFO";
+    }
+}
+
 void log_s( const char* section, const unsigned level, const char* s )
 {
-    size_t linesize = 0;
+    if (level != LOGGING_LEVEL_TR)
+        _log_kernel(section, log_level_string(level), s);
 
-    if (level != LOGGING_LEVEL_TR){
-        char* level_string;
-        if (level == LOGGING_LEVEL_ERR)
-            level_string = "ERR";
-        else if (level == LOGGING_LEVEL_WRN)
-            level_string = "WRN";
-        else
-            level_string = "INFO";
+    if (irqs_disabled() || (preempt_count() > 0))
+        goto fail;
 
-        _log_kernel( section, level_string, s );
-    }
+    if (_logging_buffer(section, level, s, strlen(s)))
+        goto fail;
 
-    linesize = strlen(s);
-    //BUG_ON(linesize >= 256);
-
-    if (SUCCESS != _logging_buffer(section, level, s, linesize)){
-        _log_kernel_tr( section, s );
-    }
-
+    return;
+fail:
+    if (level == LOGGING_LEVEL_TR)
+        _log_kernel_tr(section, s);
+    return;
 }
 
 void log_s_s( const char* section, const unsigned level, const char* s1, const char* s2 )

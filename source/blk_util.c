@@ -34,7 +34,12 @@ int blk_dev_open( dev_t dev_id, struct block_device** p_blk_dev )
         result = refCount;
     }
 #else
-    blk_dev = blkdev_get_by_dev(dev_id, fmode, NULL);
+    blk_dev = blkdev_get_by_dev(dev_id, fmode,
+#if defined(HAVE_BLK_HOLDER_OPS)
+        NULL, NULL);
+#else
+        NULL);
+#endif
     if (IS_ERR(blk_dev))
         result = PTR_ERR(blk_dev);
 #endif
@@ -46,7 +51,12 @@ int blk_dev_open( dev_t dev_id, struct block_device** p_blk_dev )
 
 void blk_dev_close( struct block_device* blk_dev )
 {
-    blkdev_put( blk_dev, FMODE_READ );
+    blkdev_put(blk_dev,
+#if defined(HAVE_BLK_HOLDER_OPS)
+        NULL);
+#else
+        FMODE_READ);
+#endif
 }
 
 int _blk_dev_get_info( struct block_device* blk_dev, blk_dev_info_t* pdev_info )
