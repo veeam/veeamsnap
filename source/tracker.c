@@ -198,13 +198,6 @@ int tracker_enum_cbt_info( int max_count, struct cbt_info_s* p_cbt_info, int* p_
     return result;
 }
 
-void tracker_cbt_start(tracker_t* tracker, unsigned long long snapshot_id, cbt_map_t* cbt_map)
-{
-    tracker_snapshot_id_set(tracker, snapshot_id);
-    tracker->cbt_map = cbt_map_get_resource(cbt_map);
-}
-
-
 int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cbt_block_size_degree, cbt_map_t* cbt_map, tracker_t** ptracker)
 {
     int result = SUCCESS;
@@ -225,6 +218,8 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
 
     tracker->original_dev_id = dev_id;
 
+    spin_lock_init(&tracker->defer_io_lock);
+
     result = blk_dev_open( tracker->original_dev_id, &tracker->target_dev );
     if (result != SUCCESS)
         return result;
@@ -244,13 +239,17 @@ int tracker_create(unsigned long long snapshot_id, dev_t dev_id, unsigned int cb
                 result = -ENOMEM;
                 break;
             }
-            tracker_cbt_start(tracker, snapshot_id, cbt_map);
+            tracker->snapshot_id = snapshot_id;
+            tracker->cbt_map = cbt_map_get_resource(cbt_map);
+
 #ifdef PERSISTENT_CBT
             cbt_persistent_register(tracker->original_dev_id, tracker->cbt_map);
 #endif
         }
-        else
-            tracker_cbt_start(tracker, snapshot_id, cbt_map);
+        else {
+            tracker->snapshot_id = snapshot_id;
+            tracker->cbt_map = cbt_map_get_resource(cbt_map);
+        }
 
 #if defined(VEEAMSNAP_BLK_FREEZE)
         result = blk_freeze_bdev( tracker->original_dev_id, tracker->target_dev, &superblock );
@@ -425,7 +424,18 @@ int _tracker_capture_snapshot( tracker_t* tracker )
         return result;
     }
 
-    tracker->defer_io = defer_io_get_resource( defer_io );
+    spin_lock(&tracker->defer_io_lock);
+    if (tracker->defer_io != NULL)
+        result = -EALREADY;
+    else
+        tracker->defer_io = defer_io_get_resource(defer_io);
+    spin_unlock(&tracker->defer_io_lock);
+
+    if (result) {
+        log_err_d("The tracker cannot be captured. errno=", result);
+        defer_io->sharing_header.free_cb(defer_io);
+        return result;
+    }
 
     atomic_set( &tracker->is_captured, true );
 
@@ -445,6 +455,7 @@ int _tracker_capture_snapshot( tracker_t* tracker )
 int tracker_capture_snapshot( snapshot_t* snapshot )
 {
     int result = SUCCESS;
+    int status;
     int inx = 0;
 
     for (inx = 0; inx < snapshot->dev_id_set_size; ++inx){
@@ -453,6 +464,7 @@ int tracker_capture_snapshot( snapshot_t* snapshot )
 #endif
         tracker_t* tracker = NULL;
         dev_t dev_id = snapshot->dev_id_set[inx];
+        int tracker_capture_result;
 
         result = tracker_find_by_dev_id( dev_id, &tracker );
         if (result != SUCCESS){
@@ -475,9 +487,7 @@ int tracker_capture_snapshot( snapshot_t* snapshot )
 #endif
         }
 
-        result = _tracker_capture_snapshot( tracker );
-        if (result != SUCCESS)
-            log_err_dev_t( "Failed to capture snapshot for device ", dev_id );
+        tracker_capture_result = _tracker_capture_snapshot( tracker );
 
         if (tracker->is_unfreezable)
             up_write(&tracker->unfreezable_lock);
@@ -492,35 +502,47 @@ int tracker_capture_snapshot( snapshot_t* snapshot )
             }
 #endif
         }
+
+        if (tracker_capture_result != SUCCESS) {
+            log_err_dev_t("Failed to capture snapshot for device ", dev_id);
+            result = tracker_capture_result;
+            break;
+        }
     }
     if (result != SUCCESS)
-        return result;
+        goto fail_release;
 
     for (inx = 0; inx < snapshot->dev_id_set_size; ++inx){
-        tracker_t* p_tracker = NULL;
+        bool is_corrupted;
+        tracker_t* tracker_iter = NULL;
         dev_t dev_id = snapshot->dev_id_set[inx];
 
-        result = tracker_find_by_dev_id( dev_id, &p_tracker );
+        result = tracker_find_by_dev_id( dev_id, &tracker_iter);
         if (result != SUCCESS){
             log_err_dev_t("Unable to capture snapshot: cannot find device ", dev_id);
             continue;
         }
+        spin_lock(&tracker_iter->defer_io_lock);
+        is_corrupted = snapstore_device_is_corrupted(tracker_iter->defer_io->snapstore_device);
+        spin_unlock(&tracker_iter->defer_io_lock);
 
-        if (snapstore_device_is_corrupted( p_tracker->defer_io->snapstore_device )){
+        if (is_corrupted){
             log_err_format( "Unable to freeze devices [%d:%d]: snapshot data is corrupted", MAJOR(dev_id), MINOR(dev_id) );
             result = -EDEADLK;
             break;
         }
     }
 
-    if (result != SUCCESS){
-        int status;
-        log_err_d( "Failed to capture snapshot. errno=", result );
+    if (result == SUCCESS)
+        return SUCCESS;
 
-        status = tracker_release_snapshot( snapshot );
-        if (status != SUCCESS)
-            log_err_d( "Failed to perfrom snapshot cleanup. errno= ", status );
-    }
+fail_release:
+    log_err_d( "Failed to capture snapshot. errno=", result );
+
+    status = tracker_release_snapshot( snapshot );
+    if (status != SUCCESS)
+        log_err_d( "Failed to perfrom snapshot cleanup. errno= ", status );
+
     return result;
 }
 
@@ -531,12 +553,7 @@ int _tracker_release_snapshot( tracker_t* tracker )
 #ifdef VEEAMSNAP_BLK_FREEZE
     struct super_block* superblock = NULL;
 #endif
-    defer_io_t* defer_io = tracker->defer_io;
-
-    if (!tracker->defer_io) {
-        log_err_dev_t( "Tracker is already released for device ", tracker->original_dev_id);
-        return SUCCESS;
-    }
+    defer_io_t* defer_io = NULL;
 
     if (tracker->is_unfreezable)
         down_write(&tracker->unfreezable_lock);
@@ -548,10 +565,18 @@ int _tracker_release_snapshot( tracker_t* tracker )
 #endif
     }
 
-    //clear freeze flag
-    atomic_set(&tracker->is_captured, false);
+    spin_lock(&tracker->defer_io_lock);
+    do {
+        if (tracker->defer_io == NULL) {
+            log_err_dev_t("Tracker is already released for device ", tracker->original_dev_id);
+            break;
+        }
 
-    tracker->defer_io = NULL;
+        atomic_set(&tracker->is_captured, false);
+        defer_io = tracker->defer_io;
+        tracker->defer_io = NULL;
+    } while (false);
+    spin_unlock(&tracker->defer_io_lock);
 
     if (tracker->is_unfreezable)
         up_write(&tracker->unfreezable_lock);
@@ -563,10 +588,10 @@ int _tracker_release_snapshot( tracker_t* tracker )
             thaw_bdev(tracker->target_dev);
 #endif
     }
-
-    defer_io_stop(defer_io);
-    defer_io_put_resource(defer_io);
-
+    if (defer_io) {
+        defer_io_stop(defer_io);
+        defer_io_put_resource(defer_io);
+    }
     return result;
 }
 
@@ -648,14 +673,4 @@ void tracker_print_state( void )
     } while (false);
 
     dbg_kfree( trackers );
-}
-
-void tracker_snapshot_id_set(tracker_t* tracker, unsigned long long snapshot_id)
-{
-    tracker->snapshot_id = snapshot_id;
-}
-
-unsigned long long tracker_snapshot_id_get(tracker_t* tracker)
-{
-    return tracker->snapshot_id;
 }

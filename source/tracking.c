@@ -266,8 +266,8 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
     if (SUCCESS == result){
         log_tr_format( "Device [%d:%d] is already tracked", MAJOR( dev_id ), MINOR( dev_id ) );
 
-        if ((snapshot_id != 0ull) && (tracker_snapshot_id_get(tracker) == 0ull))
-            tracker_snapshot_id_set(tracker, snapshot_id);
+        if ((snapshot_id != 0ull) && (tracker->snapshot_id == 0ull))
+            tracker->snapshot_id = snapshot_id;
 
         if (NULL == tracker->cbt_map){
             cbt_map_t* cbt_map = cbt_map_create((cbt_block_size_degree-SECTOR_SHIFT), blk_dev_get_capacity(tracker->target_dev));
@@ -275,7 +275,7 @@ int tracking_add(dev_t dev_id, unsigned int cbt_block_size_degree, unsigned long
                 result = -ENOMEM;
             }
             else{
-                tracker_cbt_start(tracker, snapshot_id, cbt_map);
+                tracker->cbt_map = cbt_map_get_resource(cbt_map);
 #ifdef PERSISTENT_CBT
                 cbt_persistent_register(tracker->original_dev_id, tracker->cbt_map);
 #endif
@@ -374,7 +374,7 @@ int tracking_remove( dev_t dev_id )
 
     result = tracker_find_by_dev_id(dev_id, &tracker);
     if ( SUCCESS == result ){
-        if ((tracker) && (tracker_snapshot_id_get(tracker) == 0ull)){
+        if ((tracker) && (tracker->snapshot_id == 0ull)){
             result = tracker_remove( tracker );
             if (SUCCESS == result)
                 tracker = NULL;
@@ -382,7 +382,7 @@ int tracking_remove( dev_t dev_id )
                 log_err_d("Unable to remove device from tracking: failed to remove tracker. errno=", result);
         }
         else{
-            log_err_format("Unable to remove device from tracking: snapshot [0x%llx] is created ", tracker_snapshot_id_get(tracker));
+            log_err_format("Unable to remove device from tracking: snapshot [0x%llx] is created ", tracker->snapshot_id);
             result = -EBUSY;
         }
     }else if (-ENODATA == result)

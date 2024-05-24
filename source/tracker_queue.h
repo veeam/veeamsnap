@@ -26,7 +26,7 @@ typedef struct _tracker_disk_s
     make_request_fn* original_make_request_fn;
     struct request_queue *queue;
 #endif
-    
+
 }tracker_disk_t;
 
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)

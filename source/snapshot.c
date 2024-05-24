@@ -177,7 +177,7 @@ int _snapshot_remove_device( dev_t dev_id )
     if (result != SUCCESS)
         return result;
 
-    tracker_snapshot_id_set(tracker, 0ull);
+    tracker->snapshot_id = 0ull;
 
     log_tr_format( "Device [%d:%d] successfully removed from snapshot", MAJOR( dev_id ), MINOR( dev_id ) );
 

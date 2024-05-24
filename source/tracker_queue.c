@@ -89,7 +89,7 @@ int tracker_disk_create_or_get(struct request_queue *queue, tracker_disk_t** ptr
     memcpy(&tr_disk->fops, tr_disk->original_fops, sizeof(struct block_device_operations));
     tr_disk->fops.submit_bio = tracking_make_request;
     barrier();
-    
+
     /* lock cpu */
     //cant_sleep();
     local_irq_disable();
@@ -129,7 +129,7 @@ int __tracker_disk_find(struct request_queue *queue, tracker_disk_t** ptracker_d
 #endif
 {
     int result = -ENODATA;
-    
+
     spin_lock(&tracker_disk_container_lock);
     if (!list_empty(&tracker_disk_container)) {
         tracker_disk_t* tr_disk;

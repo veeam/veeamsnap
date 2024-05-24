@@ -36,15 +36,14 @@ int snapstore_device_init( void )
 
 void snapstore_device_done( void )
 {
-    if (SUCCESS != container_done( &SnapstoreDevices )){
-        snapstore_device_t* snapstore_device;
+    snapstore_device_t* snapstore_device;
 
-        log_err( "Cleanup snapstore devices" );
+    log_tr("Cleanup snapstore devices");
+    while (NULL != (snapstore_device = (snapstore_device_t*)container_get_first(&SnapstoreDevices)))
+        snapstore_device_put_resource(snapstore_device);
 
-        while (NULL != (snapstore_device = (snapstore_device_t*)container_get_first( &SnapstoreDevices ))){
-            snapstore_device_put_resource( snapstore_device );
-        }
-    }
+    if (SUCCESS != container_done( &SnapstoreDevices ))
+        log_err("Unable to perform snapstore devices cleanup: container is not empty");
 }
 
 snapstore_device_t* snapstore_device_find_by_dev_id( dev_t dev_id )

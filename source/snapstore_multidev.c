@@ -40,8 +40,8 @@ void snapstore_multidev_destroy( snapstore_multidev_t* multidev )
                 multidev_el_t* el = (multidev_el_t*)(content);
                 blk_dev_close( el->blk_dev );
                 log_tr_dev_t( "Close device for multidevice snapstore ", el->dev_id);
+                content_sl_free(content);
             }
-            content_sl_free( content );
         }
 
         dbg_kfree( multidev );

@@ -774,6 +774,7 @@ static inline void _snapimage_free( snapimage_t* image )
 int snapimage_create( dev_t original_dev )
 {
     int res = SUCCESS;
+    tracker_t* tracker = NULL;
     defer_io_t*    defer_io = NULL;
     cbt_map_t* cbt_map = NULL;
     snapimage_t* image = NULL;
@@ -789,19 +790,23 @@ int snapimage_create( dev_t original_dev )
         return res;
     }
 
-    {
-        tracker_t* tracker = NULL;
-        res = tracker_find_by_dev_id( original_dev, &tracker );
-        if (res != SUCCESS){
-            log_err_dev_t( "Unable to create snapshot image: cannot find tracker for device ", original_dev );
-            return res;
-        }
-        defer_io = tracker->defer_io;
-        cbt_map = tracker->cbt_map;
+    res = tracker_find_by_dev_id( original_dev, &tracker );
+    if (res != SUCCESS){
+        log_err_dev_t( "Unable to create snapshot image: cannot find tracker for device ", original_dev );
+        return res;
     }
+
+    spin_lock(&tracker->defer_io_lock);
+    defer_io = defer_io_get_resource(tracker->defer_io);
+    spin_unlock(&tracker->defer_io_lock);
+
+    cbt_map = cbt_map_get_resource(tracker->cbt_map);
+
     image = (snapimage_t*)content_new( &SnapImages );
     if (image == NULL){
         log_err("Failed to allocate snapshot image structure" );
+        defer_io_put_resource(defer_io);
+        cbt_map_put_resource(cbt_map);
         return -ENOMEM;
     }
 
@@ -809,6 +814,8 @@ int snapimage_create( dev_t original_dev )
         minor = bitmap_sync_find_clear_and_set( &g_snapimage_minors );
         if (minor < SUCCESS){
             log_err_d( "Failed to allocate minor for snapshot image device. errno=", 0-minor );
+            defer_io_put_resource(defer_io);
+            cbt_map_put_resource(cbt_map);
             break;
         }
 
@@ -819,8 +826,8 @@ int snapimage_create( dev_t original_dev )
 
         image->capacity = original_dev_info.count_sect;
 
-        image->defer_io = defer_io_get_resource( defer_io );
-        image->cbt_map = cbt_map_get_resource( cbt_map );
+        image->defer_io = defer_io;
+        image->cbt_map = cbt_map;
         image->original_dev = original_dev;
 
         image->image_dev = MKDEV( g_snapimage_major, minor );
@@ -837,7 +844,7 @@ int snapimage_create( dev_t original_dev )
         mutex_init( &image->open_locker );
         image->open_cnt = 0;
 
-#ifdef VEEAMSNAP_BLK_ALLOC_DISK 
+#ifdef VEEAMSNAP_BLK_ALLOC_DISK
         disk = blk_alloc_disk(NUMA_NO_NODE);
         if (!disk){
             log_err( "Failed to allocate disk for snapshot image device" );
