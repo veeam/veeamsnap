@@ -14,12 +14,12 @@ typedef struct uuid_s
     __u8 b[UUID_SIZE];
 }veeam_uuid_t;
 
-static inline void veeam_uuid_copy( veeam_uuid_t* dst, veeam_uuid_t* src )
+static inline void veeam_uuid_copy(veeam_uuid_t* dst, const veeam_uuid_t* src)
 {
     memcpy( dst->b, src->b, UUID_SIZE );
 };
 
-static inline bool veeam_uuid_equal( veeam_uuid_t* first, veeam_uuid_t* second )
+static inline bool veeam_uuid_equal(const veeam_uuid_t* first, const veeam_uuid_t* second)
 {
     return (0 == memcmp( first->b, second->b, UUID_SIZE ));
 };

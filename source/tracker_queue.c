@@ -54,7 +54,7 @@ int tracker_disk_create_or_get(struct request_queue *queue, tracker_disk_t** ptr
 
     log_tr("New tracker disk create");
 
-    tr_disk = kzalloc(sizeof(tracker_disk_t), GFP_NOIO );
+    tr_disk = dbg_kzalloc(sizeof(tracker_disk_t), GFP_NOIO );
     if (NULL==tr_disk)
         return -ENOMEM;
 
@@ -64,7 +64,7 @@ int tracker_disk_create_or_get(struct request_queue *queue, tracker_disk_t** ptr
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
     if (!ke_get_addr(KE_BLK_MQ_SUBMIT_BIO)) {
         log_err("Kernel entry 'blk_mq_submit_bio' is not initialized.");
-        kfree(tr_disk);
+        dbg_kfree(tr_disk);
         return -ENOSYS;
     }
     log_tr("The disk's fops is being substituted.");
@@ -72,7 +72,7 @@ int tracker_disk_create_or_get(struct request_queue *queue, tracker_disk_t** ptr
 #if defined(VEEAMSNAP_MQ_REQUEST)
     if (!ke_get_addr(KE_BLK_MQ_MAKE_REQUEST)) {
         log_err("Kernel entry 'blk_mq_make_request' is not initialized.");
-        kfree(tr_disk);
+        dbg_kfree(tr_disk);
         return -ENOSYS;
     }
 #endif
@@ -188,7 +188,7 @@ void tracker_disk_free(struct kref* kref)
     log_tr("Tracker disk detached.");
 #endif
 
-    kfree(tr_disk);
+    dbg_kfree(tr_disk);
 }
 
 void tracker_disk_put(tracker_disk_t* ptracker_disk)

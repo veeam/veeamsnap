@@ -167,5 +167,6 @@ unsigned int get_fixflags(void);
 //#define VEEAMSNAP_SYSFS_PARAMS
 
 //#define SNAPIMAGE_TRACER
+//#define STAT_IO_REQ
 
 #endif /* STDAFX_H_ */

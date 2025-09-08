@@ -305,6 +305,25 @@ int _snapshot_destroy( snapshot_t* snapshot )
     return _snapshot_cleanup( snapshot );
 }
 
+int snapshot_DestroyAll(void)
+{
+    int result = SUCCESS;
+    content_t* content;
+
+    while ((content = container_get_first(&Snapshots))) {
+        int ret;
+        snapshot_t* snapshot = container_of(content, snapshot_t, content);
+
+        log_tr_format("Destroy snapshot [0x%llx]", snapshot->id);
+
+        ret = _snapshot_destroy(snapshot);
+        if (ret && (result == SUCCESS))
+            result = ret;
+    }
+
+    return result;
+}
+
 int snapshot_Destroy( unsigned long long snapshot_id )
 {
     int result = SUCCESS;

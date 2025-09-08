@@ -43,6 +43,9 @@ typedef struct snapstore_device_s
     atomic_t req_failed_cnt;
     volatile int err_code;
     volatile bool corrupted;
+#ifdef STAT_IO_REQ
+    struct log_gisto stat_redirect;
+#endif
 }snapstore_device_t;
 
 int snapstore_device_init( void );
@@ -60,7 +63,7 @@ snapstore_device_t* snapstore_device_find_by_dev_id( dev_t dev_id );
 
 int snapstore_device_create( dev_t dev_id, snapstore_t* snapstore );
 
-
+void snapstore_device_cleanup_all(void);
 int snapstore_device_cleanup( veeam_uuid_t* id );
 
 int snapstore_device_prepare_requests( snapstore_device_t* snapstore_device, range_t* copy_range, blk_deferred_request_t** dio_copy_req );

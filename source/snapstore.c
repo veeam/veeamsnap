@@ -7,6 +7,8 @@
 #define SECTION "snapstore "
 #include "log_format.h"
 
+const veeam_uuid_t empty_id;
+
 container_t Snapstore;
 
 bool _snapstore_check_halffill( snapstore_t* snapstore, sector_t* fill_status )
@@ -203,11 +205,17 @@ int snapstore_create_multidev(veeam_uuid_t* id, dev_t* dev_id_set, size_t dev_id
 }
 #endif
 
-
-int snapstore_cleanup( veeam_uuid_t* id, stream_size_t* filled_bytes )
+int snapstore_cleanup(veeam_uuid_t* id, stream_size_t* filled_bytes)
 {
     int res;
     sector_t filled;
+
+    if (veeam_uuid_equal(id, &empty_id)) {
+        snapstore_device_cleanup_all();
+        *filled_bytes = -1;
+        return SUCCESS;
+    }
+
     res = snapstore_check_halffill( id, &filled );
     if (res == SUCCESS){
         *filled_bytes = sector_to_streamsize( filled );

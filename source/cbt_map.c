@@ -100,6 +100,37 @@ void cbt_map_deallocate( cbt_map_t* cbt_map )
     cbt_map->active = false;
 }
 
+static inline unsigned long long get_tracking_block_maximum_count(void)
+{
+    return 256ull * 1024 * 1024;
+}
+
+static inline unsigned long long count_by_shift(sector_t capacity,
+    unsigned long long shift)
+{
+    sector_t blk_size = 1ull << shift;
+
+    return (capacity + blk_size - 1) / blk_size;
+}
+
+static unsigned int cbt_map_check_size(unsigned int shift, sector_t device_capacity)
+{
+    unsigned long long count;
+    /*
+     * The size of the tracking block is calculated based on the size of
+     * the disk so that the CBT table does not exceed a reasonable size.
+     */
+    count = count_by_shift(device_capacity, shift);
+    log_tr_lld("CBT blocks count ", count);
+    while (count > get_tracking_block_maximum_count()) {
+        shift = shift + 1ull;
+        count = count_by_shift(device_capacity, shift);
+        log_tr_lld("CBT blocks count ", count);
+    }
+    log_tr_lld("The optimal CBT block size in bytes: ", (1ull << (shift + SECTOR_SHIFT)));
+    return shift;
+}
+
 cbt_map_t* cbt_map_create( unsigned int cbt_sect_in_block_degree, sector_t device_capacity )
 {
     cbt_map_t* cbt_map = NULL;
@@ -110,6 +141,7 @@ cbt_map_t* cbt_map_create( unsigned int cbt_sect_in_block_degree, sector_t devic
     if (cbt_map == NULL)
         return NULL;
 
+    cbt_sect_in_block_degree = cbt_map_check_size(cbt_sect_in_block_degree, device_capacity);
     if (SUCCESS == cbt_map_allocate( cbt_map, cbt_sect_in_block_degree, device_capacity )){
         _cbt_map_init_lock( cbt_map );
 

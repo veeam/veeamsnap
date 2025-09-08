@@ -468,7 +468,10 @@ int ioctl_snapshot_destroy( unsigned long arg )
         return -ENODATA;
     }
 
-    return snapshot_Destroy( param );
+    if (param == -1ull)
+        return snapshot_DestroyAll();
+    else
+        return snapshot_Destroy( param );
 }
 //////////////////////////////////////////////////////////////////////////
 int ioctl_snapstore_create( unsigned long arg )

@@ -19,7 +19,7 @@ int snapshot_Done( void );
 int snapshot_FindById( unsigned long long id, snapshot_t** psnapshot );
 
 int snapshot_Create( dev_t* dev_id_set, unsigned int dev_id_set_size, unsigned int cbt_block_size_degree, unsigned long long* psnapshot_id );
-
+int snapshot_DestroyAll(void);
 int snapshot_Destroy( unsigned long long snapshot_id );
 
 

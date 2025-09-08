@@ -85,6 +85,10 @@ typedef struct snapimage_s{
     struct list_head trace_list;
     spinlock_t trace_lock;
 #endif
+
+#ifdef STAT_IO_REQ
+    struct log_gisto stat_read;
+#endif
 }snapimage_t;
 
 #ifdef SNAPIMAGE_TRACER
@@ -726,6 +730,10 @@ blk_qc_t _snapimage_make_request(struct request_queue *q, struct bio *bio)
         image_trace_add(image, bio_bi_sector(bio), bio_bi_size(bio), bio_data_dir(bio));
 #endif
 */
+#ifdef STAT_IO_REQ
+        if (bio_data_dir(bio) == READ)
+            log_gisto_add(&image->stat_read, bio_bi_size(bio));
+#endif
         rq_endio->bio = bio;
         rq_endio->complete_cb = _snapimage_bio_complete_cb;
         rq_endio->complete_param = (void*)image;
@@ -834,7 +842,9 @@ int snapimage_create( dev_t original_dev )
         log_tr_dev_t( "Snapshot image device id ", image->image_dev );
 
         atomic_set( &image->own_cnt, 0 );
-
+#ifdef STAT_IO_REQ
+        log_gisto_init(&image->stat_read, 4096);
+#endif
         // queue with per request processing
         spin_lock_init( &image->queue_lock );
 
@@ -1043,6 +1053,10 @@ int _snapimage_destroy( snapimage_t* image )
         disk->private_data = NULL;
         put_disk( disk );
     }
+#endif
+#ifdef STAT_IO_REQ
+    log_tr_dev_t("Reading IO units statistic for device ", image->original_dev);
+    log_gisto_show(&image->stat_read);
 #endif
     queue_sl_done( &image->rq_proc_queue );
 

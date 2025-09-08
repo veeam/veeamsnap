@@ -34,15 +34,20 @@ int snapstore_device_init( void )
     return res;
 }
 
-void snapstore_device_done( void )
+void snapstore_device_cleanup_all(void)
 {
     snapstore_device_t* snapstore_device;
 
-    log_tr("Cleanup snapstore devices");
+    log_tr("Cleanup all snapstore devices");
     while (NULL != (snapstore_device = (snapstore_device_t*)container_get_first(&SnapstoreDevices)))
         snapstore_device_put_resource(snapstore_device);
+}
 
-    if (SUCCESS != container_done( &SnapstoreDevices ))
+void snapstore_device_done(void)
+{
+    snapstore_device_cleanup_all();
+
+    if (SUCCESS != container_done(&SnapstoreDevices))
         log_err("Unable to perform snapstore devices cleanup: container is not empty");
 }
 
@@ -91,6 +96,11 @@ void _snapstore_device_destroy( snapstore_device_t* snapstore_device )
 {
     log_tr("Destroy snapstore device");
 
+#ifdef STAT_IO_REQ
+    log_tr_dev_t("Redirected IO units statistic for device ", snapstore_device->dev_id);
+    log_gisto_show(&snapstore_device->stat_redirect);
+#endif
+
     blk_descr_array_done( &snapstore_device->store_block_map );
 
     if (snapstore_device->orig_blk_dev != NULL)
@@ -105,6 +115,7 @@ void _snapstore_device_destroy( snapstore_device_t* snapstore_device )
         snapstore_put( snapstore_device->snapstore );
         snapstore_device->snapstore = NULL;
     }
+
     content_free( &snapstore_device->content );
 }
 
@@ -181,6 +192,9 @@ int snapstore_device_create( dev_t dev_id, snapstore_t* snapstore )
 
         log_warn_format("Snapstore block size increased to %lld sectors", SNAPSTORE_BLK_SIZE);
     }
+#ifdef STAT_IO_REQ
+    log_gisto_init(&snapstore_device->stat_redirect, 4096);
+#endif
     if (res != SUCCESS){
         log_err("Unable to create snapstore device");
         _snapstore_device_destroy(snapstore_device);
@@ -356,6 +370,9 @@ int snapstore_device_read( snapstore_device_t* snapstore_device, blk_redirect_bi
                 break;
             }
         }
+#ifdef STAT_IO_REQ
+        log_gisto_add(&snapstore_device->stat_redirect, blk_ofs_count * SECTOR_SIZE);
+#endif
         if (blk_descr ){
             //push snapstore read
             res = snapstore_redirect_read( rq_endio, snapstore_device->snapstore, blk_descr, rq_range.ofs + blk_ofs_start, blk_ofs_start, blk_ofs_count );

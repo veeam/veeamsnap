@@ -112,5 +112,15 @@ void log_s_sec(const char* section, const unsigned level, const char* s, const t
 #else
 #define log_err_s_sec(s, totalsecs) log_s_sec(SECTION, LOGGING_LEVEL_ERR, s, (time64_t)totalsecs);
 #endif
+
+struct log_gisto {
+    atomic_t cnt[10];
+    unsigned long min_value;
+};
+
+void log_gisto_init(struct log_gisto* gisto, unsigned long min_value);
+void log_gisto_add(struct log_gisto* gisto, unsigned long value);
+void log_gisto_show(struct log_gisto* gisto);
+
 //////////////////////////////////////////////////////////////////////////
 //void log_dump(void* p, size_t size);

@@ -6,6 +6,8 @@
 #include <linux/time.h>
 
 #define SECTION "logging   "
+#include "log_format.h"
+
 #define LOGFILE
 #define LOGGING_CHECK_RENEW "CHECK_RENEW"
 #define LOGGING_MODE_SYS    "MODE_SYS"
@@ -770,4 +772,46 @@ void log_s_sec(const char* section, const unsigned level, const char* s, const t
         _time.tm_sec);
 
     log_s(section, level, _tmp);
+}
+
+
+void log_gisto_init(struct log_gisto* gisto, unsigned long min_value)
+{
+    memset(&gisto->cnt, 0, sizeof(gisto->cnt));
+    gisto->min_value = min_value;
+}
+
+void log_gisto_add(struct log_gisto* gisto, unsigned long value)
+{
+    int inx = 0;
+    int last = sizeof(gisto->cnt) / sizeof(gisto->cnt[0]) - 1;
+    unsigned long test_value = gisto->min_value;
+
+    while (inx <= last) {
+        if (value <= test_value)
+            break;
+
+        test_value = test_value << 1;
+        inx++;
+    }
+    atomic_inc(&gisto->cnt[inx]);
+}
+
+void log_gisto_show(struct log_gisto* gisto)
+{
+    int inx = 0;
+    int last = sizeof(gisto->cnt) / sizeof(gisto->cnt[0]) - 1;
+    unsigned long test_value = gisto->min_value;
+    unsigned long prev_test_value = 0;
+
+    while (inx <= last) {
+        log_tr_format("(%llu : %llu] KiB - %llu",
+            prev_test_value / 1024,
+            test_value / 1024,
+            atomic_read(&gisto->cnt[inx]));
+
+        prev_test_value = test_value;
+        test_value = test_value << 1;
+        inx++;
+    }
 }
