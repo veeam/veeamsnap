@@ -223,9 +223,7 @@ void blk_deferred_bio_endio( struct bio *bio )
     int local_err;
     dio_bio_complete_t* complete_param = (dio_bio_complete_t*)bio->bi_private;
 
-    if (complete_param == NULL){
-//        WARN( true, "bio already end." );
-    }else{
+    if (complete_param) {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,3,0)
         local_err = err;
 #else

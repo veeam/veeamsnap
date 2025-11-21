@@ -18,7 +18,6 @@ static atomic_t tracking_refcnt = ATOMIC_INIT(1);
 
 static inline void tracking_fail(struct bio* bio)
 {
-    __WARN();
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,3,0)
     bio_endio(bio, -EAGAIN);
 #else
@@ -100,7 +99,7 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
     snapdata_collector_t* collector = NULL;
     tracker_t* tracker = NULL;
 
-    if (!atomic_inc_not_zero(&tracking_refcnt)) {
+    if (WARN(!atomic_inc_not_zero(&tracking_refcnt), "Tracking is done\n")) {
         tracking_fail(bio);
 
 #if  LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
@@ -121,14 +120,16 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
 #if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
 
 #ifdef VEEAMSNAP_BDEV_BIO
-    if (SUCCESS == tracker_disk_find(bio->bi_bdev->bd_disk, &tr_disk))
+    if (WARN(SUCCESS != tracker_disk_find(bio->bi_bdev->bd_disk, &tr_disk), "Cannot find the tracker disk\n"))
 #else
-    if (SUCCESS == tracker_disk_find(bio->bi_disk, &tr_disk))
+    if (WARN(SUCCESS != tracker_disk_find(bio->bi_disk, &tr_disk), "Cannot find the tracker disk\n"))
 #endif
 
 #else
-    if (SUCCESS == tracker_disk_find(q, &tr_disk))
+    if (WARN(SUCCESS != tracker_disk_find(q, &tr_disk), "Cannot find the tracker disk\n"))
 #endif
+        tracking_fail(bio);
+    else
     {
 #ifndef REQ_OP_BITS
         if ( bio->bi_rw & WRITE ){// only write request processed
@@ -231,10 +232,6 @@ blk_qc_t tracking_make_request( struct request_queue *q, struct bio *bio )
             result = tracking_original_make_request(tr_disk, bio);
 #endif
         }
-
-    } else {
-        /* Cannot find tracker disk */
-        tracking_fail(bio);
     }
 
     bio_put(bio);
@@ -449,17 +446,19 @@ int tracking_read_cbt_bitmap( dev_t dev_id, unsigned int offset, size_t length, 
 void tracking_done(void)
 {
     int cnt = 120;
+    signed long timeout = HZ;
 
-    if (atomic_dec_return(&tracking_refcnt) < 0) {
-        __WARN();
+    if (WARN(atomic_dec_return(&tracking_refcnt) < 0, "Invalid tracking reference counter value\n"))
         return;
-    }
 
     while (atomic_read(&tracking_refcnt) > 0) {
-        if (cnt-- == 0) {
-            __WARN();
+        if ((timeout = schedule_timeout(timeout)))
+            continue;
+
+        timeout = HZ;
+        if (WARN(cnt-- == 0, "Timeout for waiting for the completion of I/O operations.\n")) {
+            log_err("Timeout for waiting for the completion of I/O operations.");
             return;
         }
-        schedule_timeout(HZ);
     }
 }

@@ -167,9 +167,6 @@ void rangevector_sort( rangevector_t* rangevector )
         RANGEVECTOR_FOREACH_END( );
     } while (changed);
     RANGEVECTOR_WRITE_UNLOCK( rangevector );
-
-    log_tr_sz( "Sort zero ranges count=", ranges_count );
-    log_tr_sz( "Swap count=", swap_count );
 }
 
 sector_t rangevector_length( rangevector_t* rangevector )

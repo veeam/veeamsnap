@@ -116,16 +116,9 @@ int defer_io_work_thread( void* p )
 
     while (!kthread_should_stop( ) || !queue_sl_empty( defer_io->dio_queue )){
 
-        if (queue_sl_empty( defer_io->dio_queue )){
-            int res = wait_event_interruptible_timeout( defer_io->queue_add_event, (!queue_sl_empty( defer_io->dio_queue )), VEEAMIMAGE_THROTTLE_TIMEOUT );
-            if (-ERESTARTSYS == res){
-                log_err( "Signal received in defer IO thread. Waiting for completion with code ERESTARTSYS" );
-            }
-            else{
-                //if (res == 0) // timeout
-                //    wake_up_interruptible( &defer_io->queue_throttle_waiter );
-            }
-        }
+        if (queue_sl_empty( defer_io->dio_queue ))
+            if (-ERESTARTSYS == wait_event_interruptible_timeout(defer_io->queue_add_event, (!queue_sl_empty( defer_io->dio_queue )), VEEAMIMAGE_THROTTLE_TIMEOUT))
+                continue;
 
         if (!queue_sl_empty( defer_io->dio_queue )){
             int dio_copy_result = SUCCESS;

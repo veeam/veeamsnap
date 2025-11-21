@@ -182,12 +182,6 @@ void tracker_disk_free(struct kref* kref)
     /* unlock cpu */
     local_irq_enable();
 
-#if defined(VEEAMSNAP_DISK_SUBMIT_BIO)
-    log_tr("The disk's fops is being restored.");
-#else
-    log_tr("Tracker disk detached.");
-#endif
-
     dbg_kfree(tr_disk);
 }
 
