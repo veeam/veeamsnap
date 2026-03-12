@@ -135,7 +135,6 @@ void rangevector_sort( rangevector_t* rangevector )
     //primitive pair swap sort
     bool changed;
     size_t swap_count = 0;
-    size_t ranges_count = rangevector_cnt( rangevector );
 
     RANGEVECTOR_WRITE_LOCK( rangevector );
     do{
