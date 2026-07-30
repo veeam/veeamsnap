@@ -262,14 +262,14 @@ int _snapimage_open(struct block_device *bdev, fmode_t mode)
     do{
         snapimage_t* image = disk->private_data;
         if (image == NULL){
-            log_err_p("Unable to open snapshot image: private data is not initialized. Device ", disk->disk_name);
+            log_err_s("Unable to open snapshot image: private data is not initialized. Device ", disk->disk_name);
             res = - ENODEV;
             break;
         }
 
         mutex_lock(&image->open_locker);
         {
-            image->open_cnt++;
+            ++image->open_cnt;
         }
         mutex_unlock(&image->open_locker);
     } while (false);
@@ -330,29 +330,43 @@ void _snapimage_close(struct gendisk *disk)
 void _snapimage_close(struct gendisk *disk, fmode_t mode)
 #endif
 {
-    if (disk->private_data != NULL){
-        down_read(&snap_image_destroy_lock);
-        do{
-            snapimage_t* image = disk->private_data;
+    snapimage_t* image;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
+    int ret = SUCCESS;
+#endif
 
-            mutex_lock( &image->open_locker );
-            {
-                if (image->open_cnt > 0)
-                    image->open_cnt--;
-            }
-            mutex_unlock( &image->open_locker );
-        } while (false);
-        up_read(&snap_image_destroy_lock);
+    down_read(&snap_image_destroy_lock);
+    image = disk->private_data;
+    if (image != NULL){
+        int open_cnt = 0;
+
+        mutex_lock( &image->open_locker );
+        {
+            open_cnt = --image->open_cnt;
+        }
+        mutex_unlock( &image->open_locker );
+
+        if (open_cnt < 0)
+            log_format(SECTION, LOGGING_LEVEL_TR,
+                "Device '%s' have negative reference counter %d",
+                disk->disk_name, open_cnt);
+        else if (open_cnt == 0)
+            log_tr_s("No more reference to device ", disk->disk_name);
+        else
+            log_format(SECTION, LOGGING_LEVEL_TR,
+                "Device '%s' still have %d reference",
+                disk->disk_name, open_cnt);
     }
     else{
-        log_err( "Unable to to close snapshot image: private data is not initialized" );
+        log_err( "Unable to close snapshot image: private data is not initialized" );
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
-        return -ENODEV;
+        ret = -ENODEV;
 #endif
     }
+    up_read(&snap_image_destroy_lock);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
-    return SUCCESS;
+    return ret;
 #endif
 }
 
@@ -721,7 +735,7 @@ blk_qc_t _snapimage_make_request(struct request_queue *q, struct bio *bio)
 
         rq_endio = (blk_redirect_bio_endio_t*)queue_content_sl_new_opt( &image->rq_proc_queue, GFP_NOIO );
         if (NULL == rq_endio){
-			log_err("Unable to make snapshot image request: failed to allocate redirect bio structure");
+            log_err("Unable to make snapshot image request: failed to allocate redirect bio structure");
             _snapimage_bio_complete( bio, -ENOMEM );
             break;
         }
@@ -1106,6 +1120,7 @@ int snapimage_destroy( dev_t original_dev )
 
     log_tr_dev_t( "Destroy snapshot image for device ", original_dev );
 
+    down_write(&snap_image_destroy_lock);
     CONTAINER_FOREACH_BEGIN( SnapImages, content ){
         if ( ((snapimage_t*)content)->original_dev == original_dev){
             image = (snapimage_t*)content;
@@ -1115,7 +1130,6 @@ int snapimage_destroy( dev_t original_dev )
     }CONTAINER_FOREACH_END( SnapImages );
 
     if (image != NULL){
-        down_write(&snap_image_destroy_lock);
         res = _snapimage_destroy( image );
         if (SUCCESS == res){
             _snapimage_free( image );
@@ -1125,12 +1139,12 @@ int snapimage_destroy( dev_t original_dev )
         else{
             log_err_d( "Failed to destroy snapshot image device. errno=", res );
         }
-        up_write(&snap_image_destroy_lock);
     }
     else{
         log_err_d( "Snapshot image is not removed. errno=", res );
         res = -ENODATA;
     }
+    up_write(&snap_image_destroy_lock);
 
     return res;
 }
